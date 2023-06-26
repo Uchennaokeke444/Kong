@@ -1,5 +1,6 @@
 local typedefs = require "kong.db.schema.typedefs"
 local Schema = require "kong.db.schema"
+local deprecation = require("kong.deprecation")
 
 local PROTECTED_TAGS = {
   "error",
@@ -70,6 +71,23 @@ return {
           { phase_duration_flavor = { description = "Specify whether to include the duration of each phase as an annotation or a tag.", type = "string", required = true, default = "annotations",
                                       one_of = { "annotations", "tags" } } },
           { queue = typedefs.queue },
+          { propagation = typedefs.propagation },
+        },
+        entity_checks = {
+          { custom_entity_check = {
+            field_sources = { "header_type" },
+            fn = function(entity)
+              if (entity.header_type or ngx.null) ~= ngx.null and entity.header_type ~= "preserve" then
+                deprecation("zipkin: config.header_type is deprecated, please use config.propagation options instead",
+                            { after = "4.0", })
+              end
+              if (entity.default_header_type or ngx.null) ~= ngx.null and entity.default_header_type ~= "b3" then
+                deprecation("zipkin: config.default_header_type is deprecated, please use config.propagation.default_format instead",
+                            { after = "4.0", })
+              end
+              return true
+            end
+          } },
         },
     }, },
   },

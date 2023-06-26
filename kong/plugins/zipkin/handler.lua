@@ -88,10 +88,10 @@ end
 local initialize_request
 
 
-local function get_context(conf, ctx)
+local function get_context(conf, ctx, extracted_ctx)
   local zipkin = ctx.zipkin
   if not zipkin then
-    initialize_request(conf, ctx)
+    initialize_request(conf, ctx, extracted_ctx)
     zipkin = ctx.zipkin
   end
   return zipkin
@@ -99,13 +99,16 @@ end
 
 
 if subsystem == "http" then
-  initialize_request = function(conf, ctx)
+  initialize_request = function(conf, ctx, extracted_ctx)
     local req = kong.request
 
     local req_headers = req.get_headers()
 
-    local header_type, trace_id, span_id, parent_id, should_sample, baggage =
-      propagation.parse(req_headers, conf.header_type)
+    local trace_id = extracted_ctx.trace_id
+    local span_id = extracted_ctx.span_id
+    local parent_id = extracted_ctx.parent_id
+    local should_sample = extracted_ctx.should_sample
+    local baggage = extracted_ctx.baggage
 
     local method = req.get_method()
 
@@ -168,23 +171,38 @@ if subsystem == "http" then
 
     ctx.zipkin = {
       request_span = request_span,
-      header_type = header_type,
       proxy_span = nil,
       header_filter_finished = false,
     }
   end
 
 
-  function ZipkinLogHandler:access(conf) -- luacheck: ignore 212
-    local zipkin = get_context(conf, kong.ctx.plugin)
+  local function get_inject_ctx(conf, extract_ctx)
+    local zipkin = get_context(conf, kong.ctx.plugin, extract_ctx)
     local ngx_ctx = ngx.ctx
 
     local access_start =
       ngx_ctx.KONG_ACCESS_START and ngx_ctx.KONG_ACCESS_START * 1000
       or ngx_now_mu()
-    get_or_add_proxy_span(zipkin, access_start)
 
-    propagation.set(conf.header_type, zipkin.header_type, zipkin.proxy_span, conf.default_header_type)
+    local proxy_span = get_or_add_proxy_span(zipkin, access_start)
+    return {
+      trace_id = proxy_span.trace_id,
+      span_id = proxy_span.span_id,
+      parent_id = proxy_span.parent_id,
+      should_sample = proxy_span.should_sample,
+      baggage = proxy_span.baggage,
+    }
+  end
+
+
+  function ZipkinLogHandler:access(conf) -- luacheck: ignore 212
+    propagation.propagate(
+      propagation.get_plugin_params(conf),
+      function(extract_ctx)
+        return get_inject_ctx(conf, extract_ctx)
+      end
+    )
   end
 
 
