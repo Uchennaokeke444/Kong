@@ -1,3 +1,7 @@
+-- !!! DEPRECATION WARNING !!!
+-- This file is deprecated and will be removed in a future release.
+-- Please use kong.plugins.tracing-headers-propagation instead.
+
 local to_hex = require "resty.string".to_hex
 local openssl_bignum = require "resty.openssl.bn"
 local table_merge = require "kong.tools.utils".table_merge

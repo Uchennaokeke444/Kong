@@ -42,6 +42,7 @@ local plugins = {
   "ai-prompt-guard",
   "ai-request-transformer",
   "ai-response-transformer",
+  "tracing-headers-propagation",
 }
 
 local plugin_map = {}

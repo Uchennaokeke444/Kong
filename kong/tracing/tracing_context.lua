@@ -103,6 +103,7 @@ end
 
 
 return {
+  get = get_tracing_context,
   add_trace_id_formats = add_trace_id_formats,
   get_raw_trace_id = get_raw_trace_id,
   set_raw_trace_id = set_raw_trace_id,
