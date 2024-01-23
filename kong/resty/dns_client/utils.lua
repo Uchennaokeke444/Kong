@@ -105,7 +105,7 @@ local function swrr_next(answers)
     local best = nil    -- best answer in answers[]
 
     for _, answer in ipairs(answers) do
-        local w = answer.weight
+        local w = (answer.weight == 0) and 1 or answer.weight   -- rfc 2782
         local cw = answer.cw + w
         answer.cw = cw
         if not best or cw > best.cw then

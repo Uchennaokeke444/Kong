@@ -378,7 +378,7 @@ local function resolve_name_type(self, name, qtype, opts, tries)
     --log(tries, key)
 
     if detect_recursion(opts, key) then
-        return nil, "recursion detected for name: " .. name
+        return nil, "recursion detected for name: " .. key
     end
 
     local answers, err, hit_level = self.cache:get(key, nil,
@@ -460,7 +460,9 @@ end
 
 
 local function resolve_all(self, name, opts, tries)
-    if detect_recursion(opts, name) then
+    local key = "fast:" .. name .. ":" .. (opts.qtype or "all")
+
+    if detect_recursion(opts, key) then
         return nil, "recursion detected for name: " .. name
     end
 
@@ -469,7 +471,6 @@ local function resolve_all(self, name, opts, tries)
 
     --log(tries, name)
     -- lookup fastly with the key `fast:<qname>:<qtype>/all`
-    local key = "fast:" .. name .. ":" .. (opts.qtype or "all")
     local answers, err, hit_level = self.cache:get(key)
     if not answers then
         answers, err, tries = resolve_names_and_types(self, name, opts, tries)
@@ -515,6 +516,7 @@ function _M:resolve(name, opts, tries)
     if answers[1].type == TYPE_SRV then
         local answer = utils.get_wrr_ans(answers)
         opts.port = answer.port ~= 0 and answer.port or opts.port
+        -- TODO: SRV recursive name and target how to handle
         return self:resolve(answer.target, opts, tries)
     end
 

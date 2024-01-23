@@ -967,17 +967,17 @@ describe("[DNS client]", function()
     assert.are.equal(answers[1].address, "[1234::1234]")
   end)
 
-  describe("toip() function", function()
+  describe("toip() function #ttt", function()
     it("A/AAAA-answers, round-robin",function()
-      assert(client.init({ search = {}, }))
+      local cli = assert(client_new({ nameservers = TEST_NSS }))
       local host = "atest."..TEST_DOMAIN
       local answers = assert(cli:resolve(host))
-      answers.last_index = nil -- make sure to clean
+      answers.last = nil -- make sure to clean
       local ips = {}
-      for _,rec in ipairs(answers) do ips[rec.address] = true end
+      for _,answers in ipairs(answers) do ips[answers.address] = true end
       local order = {}
       for n = 1, #answers do
-        local ip = client.toip(host)
+        local ip = cli:resolve(host, { return_random = true })
         ips[ip] = nil
         order[n] = ip
       end
@@ -985,12 +985,12 @@ describe("[DNS client]", function()
       assert.is_nil(next(ips))
       -- do again, and check same order
       for n = 1, #order do
-        local ip = client.toip(host)
+        local ip = cli:resolve(host, { return_random = true })
         assert.same(order[n], ip)
       end
     end)
     it("SRV-answers, round-robin on lowest prio",function()
-      assert(client.init())
+      local cli = assert(client_new({ nameservers = TEST_NSS }))
       local host = "hello.world.test"
       local entry = {
         {
@@ -1027,11 +1027,11 @@ describe("[DNS client]", function()
         expire = ngx.now()+10,
       }
       -- insert in the cache
-      cli.cache:set(entry[1].type..":"..entry[1].name, entry)
+      cli.cache:set(entry[1].name .. ":" .. entry[1].type, {ttl=0}, entry)
 
       local results = {}
       for _ = 1,20 do
-        local _, port = client.toip(host)
+        local _, port = cli:resolve(host, { return_random = true })
         results[port] = (results[port] or 0) + 1
       end
 
@@ -1041,7 +1041,7 @@ describe("[DNS client]", function()
       assert.equal(10, results[8002] or 0) --priority 10, 50% of hits
     end)
     it("SRV-answers with 1 entry, round-robin",function()
-      assert(client.init())
+      local cli = assert(client_new({ nameservers = TEST_NSS }))
       local host = "hello.world"
       local entry = {
         {
@@ -1058,19 +1058,19 @@ describe("[DNS client]", function()
         expire = ngx.now()+10,
       }
       -- insert in the cache
-      cli.cache:set(entry[1].type..":"..entry[1].name, entry)
+      cli.cache:set(entry[1].name .. ":" .. entry[1].type, { ttl=0 }, entry)
 
       -- repeated lookups, as the first will simply serve the first entry
       -- and the only second will setup the round-robin scheme, this is
       -- specific for the SRV answers type, due to the weights
       for _ = 1 , 10 do
-        local ip, port = assert(client.toip(host))
-        assert.equal("1.2.3.4", ip)
-        assert.equal(321, port)
+        local ip, port = cli:resolve(host, { return_random = true })
+        assert.same("1.2.3.4", ip)
+        assert.same(321, port)
       end
     end)
     it("SRV-answers with 0-weight, round-robin",function()
-      assert(client.init())
+      local cli = assert(client_new({ nameservers = TEST_NSS }))
       local host = "hello.world"
       local entry = {
         {
@@ -1107,13 +1107,13 @@ describe("[DNS client]", function()
         expire = ngx.now()+10,
       }
       -- insert in the cache
-      cli.cache:set(entry[1].type..":"..entry[1].name, entry)
+      cli.cache:set(entry[1].name .. ":" .. entry[1].type, { ttl = 0 }, entry)
 
       -- weight 0 will be weight 1, without any reduction in weight
       -- of the other ones.
       local track = {}
       for _ = 1 , 202 do  --> run around twice
-        local ip, _ = assert(client.toip(host))
+        local ip, _ = assert(cli:resolve(host, { return_random = true }))
         track[ip] = (track[ip] or 0) + 1
       end
       assert.equal(100, track["1.2.3.5"])
@@ -1121,7 +1121,7 @@ describe("[DNS client]", function()
       assert.equal(2, track["1.2.3.4"])
     end)
     it("port passing",function()
-      assert(client.init())
+      local cli = assert(client_new({ nameservers = TEST_NSS }))
       local entry_a = {
         {
           type = resolver.TYPE_A,
@@ -1148,46 +1148,46 @@ describe("[DNS client]", function()
         expire = ngx.now()+10,
       }
       -- insert in the cache
-      cli.cache:set(entry_a[1].type..":"..entry_a[1].name, entry_a)
-      cli.cache:set(entry_srv[1].type..":"..entry_srv[1].name, entry_srv)
+      cli.cache:set(entry_a[1].name..":"..entry_a[1].type, { ttl = 0 }, entry_a)
+      cli.cache:set(entry_srv[1].name..":"..entry_srv[1].type, { ttl = 0 }, entry_srv)
       local ip, port
       local host = "a.answers.test"
-      ip,port = client.toip(host)
+      ip,port = cli:resolve(host, { return_random = true })
       assert.is_string(ip)
       assert.is_nil(port)
 
-      ip, port = client.toip(host, 1234)
+      ip, port = cli:resolve(host, { return_random = true, port = 1234 })
       assert.is_string(ip)
       assert.equal(1234, port)
 
       host = "srv.answers.test"
-      ip, port = client.toip(host)
+      ip, port = cli:resolve(host, { return_random = true })
       assert.is_string(ip)
       assert.is_number(port)
 
-      ip, port = client.toip(host, 0)
+      ip, port = cli:resolve(host, { return_random = true, port = 0 })
       assert.is_string(ip)
       assert.is_number(port)
       assert.is_not.equal(0, port)
     end)
 
     it("port passing if SRV port=0",function()
-      assert(client.init({ search = {}, }))
+      local cli = assert(client_new({ nameservers = TEST_NSS }))
       local ip, port, host
 
       host = "srvport0."..TEST_DOMAIN
-      ip, port = client.toip(host, 10)
+      ip, port = cli:resolve(host, { return_random = true, port = 10 })
       assert.is_string(ip)
       assert.is_number(port)
       assert.is_equal(10, port)
 
-      ip, port = client.toip(host)
+      ip, port = cli:resolve(host, { return_random = true })
       assert.is_string(ip)
       assert.is_nil(port)
     end)
 
     it("recursive SRV pointing to itself",function()
-      assert(client.init({ search = {}, }))
+      local cli = assert(client_new({ nameservers = TEST_NSS }))
       local ip, answers, port, host, err, _
       host = "srvrecurse."..TEST_DOMAIN
 
@@ -1202,10 +1202,8 @@ describe("[DNS client]", function()
 
       -- default order, SRV, A; the recursive SRV answers fails, and it falls
       -- back to the IP4 address
-      ip, port, _ = client.toip(host)
-      assert.is_string(ip)
-      assert.is_equal("10.0.0.44", ip)
-      assert.is_nil(port)
+      ip, port, _ = cli:resolve(host, { return_random = true })
+      assert.same(port, "recursion detected for name: srvrecurse.kong-gateway-testing.link")
     end)
     it("resolving in correct answers-type order",function()
       local function config()
@@ -1233,20 +1231,20 @@ describe("[DNS client]", function()
           expire = ngx.now()+10,  -- active
         }
         -- insert in the cache
-        cli.cache:set(A_entry[1].type..":"..A_entry[1].name, A_entry)
-        cli.cache:set(AAAA_entry[1].type..":"..AAAA_entry[1].name, AAAA_entry)
+        cli.cache:set(A_entry[1].name..":"..A_entry[1].type, A_entry)
+        cli.cache:set(AAAA_entry[1].name..":"..AAAA_entry[1].type, AAAA_entry)
       end
-      assert(client.init({order = {"AAAA", "A"}}))
+      local cli = assert(client_new({ nameservers = TEST_NSS, order = {"AAAA", "A"} }))
       config()
-      local ip = client.toip("hello.world")
+      local ip = cli:resolve("hello.world", { return_random = true})
       assert.equals(ip, "::1")
-      assert(client.init({order = {"A", "AAAA"}}))
+      local cli = assert(client_new({ nameservers = TEST_NSS, order = {"A", "AAAA"}}))
       config()
-      ip = client.toip("hello.world")
+      ip = cli:resolve("hello.world", { return_random = true})
       assert.equals(ip, "5.6.7.8")
     end)
     it("handling of empty responses", function()
-      assert(client.init())
+      local cli = assert(client_new({ nameservers = TEST_NSS }))
       local empty_entry = {
         touch = 0,
         expire = 0,
@@ -1255,17 +1253,12 @@ describe("[DNS client]", function()
       cli.cache[resolver.TYPE_A..":".."hello.world"] = empty_entry
 
       -- Note: the bad case would be that the below lookup would hang due to round-robin on an empty table
-      local ip, port = client.toip("hello.world", 123, true)
+      local ip, port = cli:resolve("hello.world", { return_random = true, port = 123, cache_only = true})
       assert.is_nil(ip)
       assert.is.string(port)  -- error message
     end)
     it("recursive lookups failure", function()
-      assert(client.init({
-        resolvConf = {
-          -- resolv.conf without `search` and `domain` options
-          "nameserver 198.51.100.0",
-        },
-      }))
+      local cli = assert(client_new({ nameservers = TEST_NSS, order = {"AAAA", "A"} }))
       local entry1 = {
         {
           type = resolver.TYPE_CNAME,
@@ -1289,11 +1282,11 @@ describe("[DNS client]", function()
         expire = ngx.now()+10, -- active
       }
       -- insert in the cache
-      cli.cache:set(entry1[1].type..":"..entry1[1].name, entry1)
-      cli.cache:set(entry2[1].type..":"..entry2[1].name, entry2)
+      cli.cache:set(entry1[1].name..":"..entry1[1].type, { ttl = 0 }, entry1)
+      cli.cache:set(entry2[1].name..":"..entry2[1].type, { ttl = 0 }, entry2)
 
       -- Note: the bad case would be that the below lookup would hang due to round-robin on an empty table
-      local ip, port, _ = client.toip("hello.world", 123, true)
+      local ip, port, _ = cli:resolve("hello.world", { return_random = true, port = 123, cache_only = true})
       assert.is_nil(ip)
       assert.are.equal("recursion detected", port)
     end)
@@ -1304,14 +1297,11 @@ describe("[DNS client]", function()
     local emptyTtl = 0.1
     local staleTtl = 0.1
     local qname = "konghq.com"
-    assert(client.init({
+    local cli = assert(client_new({
+      nameservers = TEST_NSS,
       emptyTtl = emptyTtl,
       staleTtl = staleTtl,
       validTtl = validTtl,
-      resolvConf = {
-        -- resolv.conf without `search` and `domain` options
-        "nameserver 198.51.100.0",
-      },
     }))
 
     -- mock query function to return a default answers
@@ -1342,13 +1332,10 @@ describe("[DNS client]", function()
     local emptyTtl = 0.1
     local staleTtl = 0.1
     local qname = "really.really.really.does.not.exist."..TEST_DOMAIN
-    assert(client.init({
+    local cli = assert(client_new({
+      nameservers = TEST_NSS,
       emptyTtl = emptyTtl,
       staleTtl = staleTtl,
-      -- don't supply resolvConf and fallback to default resolver
-      -- so that CI and docker can have reliable results
-      -- but remove `search` and `domain`
-      search = {},
     }))
 
     -- mock query function to count calls
@@ -1417,13 +1404,10 @@ describe("[DNS client]", function()
     local badTtl = 0.1
     local staleTtl = 0.1
     local qname = "realname.com"
-    assert(client.init({
+    local cli = assert(client_new({
+      nameservers = TEST_NSS,
       badTtl = badTtl,
       staleTtl = staleTtl,
-      resolvConf = {
-        -- resolv.conf without `search` and `domain` options
-        "nameserver 198.51.100.0",
-      },
     }))
 
     -- mock query function to count calls, and return errors
@@ -1489,7 +1473,7 @@ describe("[DNS client]", function()
   describe("verifies the polling of dns queries, retries, and wait times", function()
 
     it("simultaneous lookups are synchronized to 1 lookup", function()
-      assert(client.init())
+      local cli = assert(client_new({ nameservers = TEST_NSS }))
       local coros = {}
       local results = {}
 
@@ -1546,13 +1530,10 @@ describe("[DNS client]", function()
       local timeout = 500
       local ip = "1.4.2.3"
       -- basically the local function _synchronized_query
-      assert(client.init({
+      local cli = assert(client_new({
+        nameservers = TEST_NSS,
         timeout = timeout,
         retrans = 1,
-        resolvConf = {
-          -- resolv.conf without `search` and `domain` options
-          "nameserver 198.51.100.0",
-        },
       }))
 
       -- insert a stub thats waits and returns a fixed answers
