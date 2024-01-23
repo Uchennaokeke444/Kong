@@ -890,7 +890,7 @@ describe("[DNS client]", function()
     local cli = assert(client_new({ nameservers = TEST_NSS}))
     -- insert in the cache
     cli.cache:set(entry1[1].name .. ":" .. entry1[1].type, { ttl = 0 }, entry1)
-    local answers, err, _ = cli:resolve("hello.world", { cache_only = true})
+    local answers, err, _ = cli:resolve("hello.world", { cache_only = true })
     assert.is_nil(answers)
     assert.are.equal("recursion detected for name: hello.world", err)
   end)
@@ -1206,41 +1206,34 @@ describe("[DNS client]", function()
       assert.same(port, "recursion detected for name: srvrecurse.kong-gateway-testing.link")
     end)
     it("resolving in correct answers-type order",function()
-      local function config()
+      local function config(cli)
         -- function to insert 2 answerss in the cache
-        local A_entry = {
-          {
-            type = resolver.TYPE_A,
-            address = "5.6.7.8",
-            class = 1,
-            name = "hello.world",
-            ttl = 10,
-          },
-          touch = 0,
-          expire = ngx.now()+10,  -- active
-        }
-        local AAAA_entry = {
-          {
-            type = resolver.TYPE_AAAA,
-            address = "::1",
-            class = 1,
-            name = "hello.world",
-            ttl = 10,
-          },
-          touch = 0,
-          expire = ngx.now()+10,  -- active
-        }
+        local A_entry = {{
+          type = resolver.TYPE_A,
+          address = "5.6.7.8",
+          class = 1,
+          name = "hello.world",
+          ttl = 10,
+        }}
+        local AAAA_entry = {{
+          type = resolver.TYPE_AAAA,
+          address = "::1",
+          class = 1,
+          name = "hello.world",
+          ttl = 10,
+        }}
         -- insert in the cache
-        cli.cache:set(A_entry[1].name..":"..A_entry[1].type, A_entry)
-        cli.cache:set(AAAA_entry[1].name..":"..AAAA_entry[1].type, AAAA_entry)
+        cli.cache:set(A_entry[1].name..":"..A_entry[1].type, { ttl=0 }, A_entry)
+        cli.cache:set(AAAA_entry[1].name..":"..AAAA_entry[1].type, { ttl=0 }, AAAA_entry)
       end
       local cli = assert(client_new({ nameservers = TEST_NSS, order = {"AAAA", "A"} }))
-      config()
-      local ip = cli:resolve("hello.world", { return_random = true})
+      config(cli)
+      local ip,err = cli:resolve("hello.world", { return_random = true })
+      assert.same(err, nil)
       assert.equals(ip, "::1")
       local cli = assert(client_new({ nameservers = TEST_NSS, order = {"A", "AAAA"}}))
-      config()
-      ip = cli:resolve("hello.world", { return_random = true})
+      config(cli)
+      ip = cli:resolve("hello.world", { return_random = true })
       assert.equals(ip, "5.6.7.8")
     end)
     it("handling of empty responses", function()
@@ -1253,42 +1246,34 @@ describe("[DNS client]", function()
       cli.cache[resolver.TYPE_A..":".."hello.world"] = empty_entry
 
       -- Note: the bad case would be that the below lookup would hang due to round-robin on an empty table
-      local ip, port = cli:resolve("hello.world", { return_random = true, port = 123, cache_only = true})
+      local ip, port = cli:resolve("hello.world", { return_random = true, port = 123, cache_only = true })
       assert.is_nil(ip)
       assert.is.string(port)  -- error message
     end)
     it("recursive lookups failure", function()
-      local cli = assert(client_new({ nameservers = TEST_NSS, order = {"AAAA", "A"} }))
-      local entry1 = {
-        {
-          type = resolver.TYPE_CNAME,
-          cname = "bye.bye.world",
-          class = 1,
-          name = "hello.world",
-          ttl = 10,
-        },
-        touch = 0,
-        expire = ngx.now()+10, -- active
-      }
-      local entry2 = {
-        {
-          type = resolver.TYPE_CNAME,
-          cname = "hello.world",
-          class = 1,
-          name = "bye.bye.world",
-          ttl = 10,
-        },
-        touch = 0,
-        expire = ngx.now()+10, -- active
-      }
+      local cli = assert(client_new({ nameservers = TEST_NSS }))
+      local entry1 = {{
+        type = resolver.TYPE_CNAME,
+        cname = "bye.bye.world",
+        class = 1,
+        name = "hello.world",
+        ttl = 10,
+      }}
+      local entry2 = {{
+        type = resolver.TYPE_CNAME,
+        cname = "hello.world",
+        class = 1,
+        name = "bye.bye.world",
+        ttl = 10,
+      }}
       -- insert in the cache
       cli.cache:set(entry1[1].name..":"..entry1[1].type, { ttl = 0 }, entry1)
       cli.cache:set(entry2[1].name..":"..entry2[1].type, { ttl = 0 }, entry2)
 
       -- Note: the bad case would be that the below lookup would hang due to round-robin on an empty table
-      local ip, port, _ = cli:resolve("hello.world", { return_random = true, port = 123, cache_only = true})
+      local ip, port, _ = cli:resolve("hello.world", { return_random = true, port = 123, cache_only = true })
       assert.is_nil(ip)
-      assert.are.equal("recursion detected", port)
+      assert.are.equal("recursion detected for name: hello.world", port)
     end)
   end)
 
