@@ -5,6 +5,7 @@ local mlcache = require("kong.resty.mlcache")
 local resolver = require("resty.dns.resolver")
 
 local math_min = math.min
+local timer_at = ngx.timer.at
 local math_random = math.random
 local table_insert = table.insert
 local table_remove = table.remove
@@ -323,8 +324,8 @@ end
 local function start_stale_update_task(self, key, name, qtype)
     timer_at(0, function (premature)
         if not premature then
-            local answer = resolve_query(self, name, qtype, {})
-            if answers and not answers.errcode then
+            local answers = resolve_query(self, name, qtype, {})
+            if answers then
                 self.cache:set(key, { ttl = answers.ttl }, answers)
                 insert_last_type(self.cache, name, qtype)
             end
@@ -337,12 +338,12 @@ local function resolve_name_type_callback(self, name, qtype, opts, tries)
     local key = name .. ":" .. qtype
 
     local ttl, err, answers = self.cache:peek(key, true)
-    if answers and not answers.stale_used then
+    if answers and not answers.expired then
         ttl = (ttl or 0) + self.stale_ttl
         if ttl > 0 then
             stats_incr(self.stats, key, "stale")
             start_stale_update_task(self, key, name, qtype)
-            answers.stale_used = true
+            answers.expired = true
             return answers, nil, ttl
         end
     end

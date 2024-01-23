@@ -9,6 +9,9 @@ local TEST_NS = "192.168.5.2:53"  -- Kong local official env
 
 local TEST_NSS = { TEST_NS }
 
+
+local NOT_FOUND_ERROR = 'no available records'
+
 local logerr = function(...)
   ngx.log(ngx.ERR, ...)
 end
@@ -1277,50 +1280,44 @@ describe("[DNS client]", function()
     end)
   end)
 
-  it("verifies validTtl", function()
-    local validTtl = 0.1
-    local emptyTtl = 0.1
-    local staleTtl = 0.1
+  it("verifies valid_ttl #ttt", function()
+    local valid_ttl = 0.1
+    local empty_ttl = 0.1
+    local stale_ttl = 0.1
     local qname = "konghq.com"
     local cli = assert(client_new({
       nameservers = TEST_NSS,
-      emptyTtl = emptyTtl,
-      staleTtl = staleTtl,
-      validTtl = validTtl,
+      empty_ttl = empty_ttl,
+      stale_ttl = stale_ttl,
+      valid_ttl = valid_ttl,
     }))
-
     -- mock query function to return a default answers
     query_func = function(self, original_query_func, name, options)
-      return  {
-        {
-          type = resolver.TYPE_A,
-          address = "5.6.7.8",
-          class = 1,
-          name = qname,
-          ttl = 10,   -- should be overridden by the validTtl setting
-        },
-      }
+      return  {{
+        type = resolver.TYPE_A,
+        address = "5.6.7.8",
+        class = 1,
+        name = qname,
+        ttl = 10,
+      }}  -- will add new field .ttl = valid_ttl
     end
 
-    -- do a query
-    local res1, _, _ = cli:resolve(
-    qname,
-    { qtype = resolver.TYPE_A }
-    )
+    local answers, _, _ = cli:resolve(qname, { qtype = resolver.TYPE_A })
+    assert.equal(valid_ttl, answers.ttl)
 
-    assert.equal(validTtl, res1[1].ttl)
-    assert.is_near(validTtl, res1.expire - ngx.now(), 0.1)
+    local ttl, err, value = cli.cache:peek("fast:" .. qname .. ":1")
+    assert.is_near(valid_ttl, ttl, 0.1)
   end)
 
-  it("verifies ttl and caching of empty responses and name errors", function()
+  it("verifies ttl and caching of empty responses and name errors #ttt", function()
     --empty/error responses should be cached for a configurable time
-    local emptyTtl = 0.1
-    local staleTtl = 0.1
+    local empty_ttl = 0.1
+    local stale_ttl = 0.1
     local qname = "really.really.really.does.not.exist."..TEST_DOMAIN
     local cli = assert(client_new({
       nameservers = TEST_NSS,
-      emptyTtl = emptyTtl,
-      staleTtl = staleTtl,
+      empty_ttl = empty_ttl,
+      stale_ttl = stale_ttl,
     }))
 
     -- mock query function to count calls
@@ -1330,69 +1327,60 @@ describe("[DNS client]", function()
       return original_query_func(self, name, options)
     end
 
-
     -- make a first request, populating the cache
-    local res1, res2, err1, err2, _
-    res1, err1, _ = cli:resolve(
-    qname,
-    { qtype = resolver.TYPE_A }
-    )
-    assert.is_nil(res1)
+    local answers1, answers2, err1, err2, _
+    answers1, err1, _ = cli:resolve(qname, { qtype = resolver.TYPE_A })
+    assert.is_nil(answers1)
     assert.are.equal(1, call_count)
     assert.are.equal(NOT_FOUND_ERROR, err1)
-    res1 = assert(cli.cache:get(resolver.TYPE_A..":"..qname))
+    answers1 = assert(cli.cache:get(qname .. ":" .. resolver.TYPE_A))
 
 
     -- make a second request, result from cache, still called only once
-    res2, err2, _ = cli:resolve(
-    qname,
-    { qtype = resolver.TYPE_A }
-    )
-    assert.is_nil(res2)
+    answers2, err2, _ = cli:resolve(qname, { qtype = resolver.TYPE_A })
+    assert.is_nil(answers2)
     assert.are.equal(1, call_count)
     assert.are.equal(NOT_FOUND_ERROR, err2)
-    res2 = assert(cli.cache:get(resolver.TYPE_A..":"..qname))
-    assert.equal(res1, res2)
-    assert.falsy(res2.expired)
+    answers2 = assert(cli.cache:get(qname .. ":" .. resolver.TYPE_A))
+    assert.equal(answers1, answers2)
+    assert.falsy(answers2.expired)
 
 
-    -- wait for expiry of Ttl and retry, still called only once
-    sleep(emptyTtl+0.5 * staleTtl)
-    res2, err2 = cli:resolve(
-    qname,
-    { qtype = resolver.TYPE_A }
-    )
-    assert.is_nil(res2)
-    assert.are.equal(1, call_count)
+    -- wait for expiry of _ttl and retry, still called only once
+    ngx.sleep(empty_ttl+0.5 * stale_ttl)
+    answers2, err2 = cli:resolve(qname, { qtype = resolver.TYPE_A })
+    assert.is_nil(answers2)
     assert.are.equal(NOT_FOUND_ERROR, err2)
-    res2 = assert(cli.cache:get(resolver.TYPE_A..":"..qname))
-    assert.equal(res1, res2)
-    assert.is_true(res2.expired)  -- by now, answers is marked as expired
+    assert.are.equal(1, call_count)
 
+    answers2 = assert(cli.cache:get(qname .. ":" .. resolver.TYPE_A))
+    assert.is_true(answers2.expired) -- by now, answers is marked as expired
 
-    -- wait for expiry of staleTtl and retry, should be called twice now
-    sleep(0.75 * staleTtl)
-    res2, err2 = cli:resolve(
-    qname,
-    { qtype = resolver.TYPE_A }
-    )
-    assert.is_nil(res2)
+    answers2.expired = nil -- clear
+    assert.same(answers1, answers2)
+
+    -- wait for expiry of stale_ttl and retry, should be called twice now
+    ngx.sleep(0.75 * stale_ttl)
     assert.are.equal(2, call_count)
+    answers2, err2 = cli:resolve(qname, { qtype = resolver.TYPE_A })
+    assert.is_nil(answers2)
     assert.are.equal(NOT_FOUND_ERROR, err2)
-    res2 = assert(cli.cache:get(resolver.TYPE_A..":"..qname))
-    assert.not_equal(res1, res2)
-    assert.falsy(res2.expired)  -- new answers, not expired
+    assert.are.equal(2, call_count)
+
+    answers2 = assert(cli.cache:get(qname .. ":" .. resolver.TYPE_A))
+    assert.not_equal(answers1, answers2)
+    assert.falsy(answers2.expired)  -- new answers, not expired
   end)
 
   it("verifies ttl and caching of (other) dns errors", function()
     --empty responses should be cached for a configurable time
-    local badTtl = 0.1
-    local staleTtl = 0.1
+    local bad_ttl = 0.1
+    local stale_ttl = 0.1
     local qname = "realname.com"
     local cli = assert(client_new({
       nameservers = TEST_NSS,
-      badTtl = badTtl,
-      staleTtl = staleTtl,
+      bad_ttl = bad_ttl,
+      stale_ttl = stale_ttl,
     }))
 
     -- mock query function to count calls, and return errors
@@ -1404,55 +1392,55 @@ describe("[DNS client]", function()
 
 
     -- initial request to populate the cache
-    local res1, res2, err1, err2, _
-    res1, err1, _ = cli:resolve(
+    local answers1, answers2, err1, err2, _
+    answers1, err1, _ = cli:resolve(
     qname,
     { qtype = resolver.TYPE_A }
     )
-    assert.is_nil(res1)
+    assert.is_nil(answers1)
     assert.are.equal(1, call_count)
     assert.are.equal("dns server error: 5 refused", err1)
-    res1 = assert(cli.cache:get(resolver.TYPE_A..":"..qname))
+    answers1 = assert(cli.cache:get(resolver.TYPE_A..":"..qname))
 
 
     -- try again, from cache, should still be called only once
-    res2, err2, _ = cli:resolve(
+    answers2, err2, _ = cli:resolve(
     qname,
     { qtype = resolver.TYPE_A }
     )
-    assert.is_nil(res2)
+    assert.is_nil(answers2)
     assert.are.equal(call_count, 1)
     assert.are.equal(err1, err2)
-    res2 = assert(cli.cache:get(resolver.TYPE_A..":"..qname))
-    assert.are.equal(res1, res2)
-    assert.falsy(res1.expired)
+    answers2 = assert(cli.cache:get(resolver.TYPE_A..":"..qname))
+    assert.are.equal(answers1, answers2)
+    assert.falsy(answers1.expired)
 
 
     -- wait for expiry of ttl and retry, still 1 call, but now stale result
-    sleep(badTtl + 0.5 * staleTtl)
-    res2, err2, _ = cli:resolve(
+    sleep(bad_ttl + 0.5 * stale_ttl)
+    answers2, err2, _ = cli:resolve(
     qname,
     { qtype = resolver.TYPE_A }
     )
-    assert.is_nil(res2)
+    assert.is_nil(answers2)
     assert.are.equal(call_count, 1)
     assert.are.equal(err1, err2)
-    res2 = assert(cli.cache:get(resolver.TYPE_A..":"..qname))
-    assert.are.equal(res1, res2)
-    assert.is_true(res2.expired)
+    answers2 = assert(cli.cache:get(resolver.TYPE_A..":"..qname))
+    assert.are.equal(answers1, answers2)
+    assert.is_true(answers2.expired)
 
-    -- wait for expiry of staleTtl and retry, 2 calls, new result
-    sleep(0.75 * staleTtl)
-    res2, err2, _ = cli:resolve(
+    -- wait for expiry of stale_ttl and retry, 2 calls, new result
+    sleep(0.75 * stale_ttl)
+    answers2, err2, _ = cli:resolve(
     qname,
     { qtype = resolver.TYPE_A }
     )
-    assert.is_nil(res2)
+    assert.is_nil(answers2)
     assert.are.equal(call_count, 2)  -- 2 calls now
     assert.are.equal(err1, err2)
-    res2 = assert(cli.cache:get(resolver.TYPE_A..":"..qname))
-    assert.are_not.equal(res1, res2)  -- a new answers
-    assert.falsy(res2.expired)
+    answers2 = assert(cli.cache:get(resolver.TYPE_A..":"..qname))
+    assert.are_not.equal(answers1, answers2)  -- a new answers
+    assert.falsy(answers2.expired)
   end)
 
   describe("verifies the polling of dns queries, retries, and wait times", function()
