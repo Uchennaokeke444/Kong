@@ -1,0 +1,5 @@
+message: >
+  **proxy-wasm**: The Wasm subsystem will reuse the global `kong.dns` DNS
+  client instead of instantiating a new one.
+type: bugfix
+scope: Core
