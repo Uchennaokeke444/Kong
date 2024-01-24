@@ -31,7 +31,7 @@ local TYPE_AAAA     = resolver.TYPE_AAAA
 local TYPE_CNAME    = resolver.TYPE_CNAME
 local TYPE_LAST     = -1
 
-local valid_types = {
+local valid_type_names = {
     SRV     = TYPE_SRV,
     A       = TYPE_A,
     AAAA    = TYPE_AAAA,
@@ -75,8 +75,18 @@ local function stats_incr(stats, name, key)
 end
 
 
+-- For TYPE_LAST: the DNS record from the last successful query
+local valid_types = {
+    [ TYPE_SRV ] = true,
+    [ TYPE_A ] = true,
+    [ TYPE_AAAA ] = true,
+    [ TYPE_CNAME ] = true,
+}
+
 local function insert_last_type(cache, name, qtype)
-    cache:set("last:" .. name, { ttl = 0 }, qtype)
+    if valid_types[qtype] then
+        cache:set("last:" .. name, { ttl = 0 }, qtype)
+    end
 end
 
 
@@ -184,7 +194,7 @@ function _M.new(opts)
     local order = opts.order or DEFAULT_ORDER
     local preferred_ip_type
     for _, typstr in ipairs(order) do
-        local qtype = valid_types[typstr:upper()]
+        local qtype = valid_type_names[typstr:upper()]
         if not qtype then
             return nil, "Invalid dns record type in order array: " .. typstr
         end
@@ -279,7 +289,9 @@ local function process_answers(self, qname, qtype, answers)
         for k, a in pairs(unmatched) do
             process_answers_fields(self, a)
             self.cache:set(k, { ttl = a.ttl }, a)
-            insert_last_type(self.cache, a[1].name, a[1].type)
+            if not get_last_type(self.cache, a[1].name) then
+                insert_last_type(self.cache, a[1].name, a[1].type)
+            end
         end
 
         if #answers == 0 then
