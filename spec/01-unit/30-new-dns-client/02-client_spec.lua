@@ -4,7 +4,6 @@ local tmpname = require("pl.path").tmpname
 -- hosted in Route53 in the AWS sandbox
 local TEST_DOMAIN = "kong-gateway-testing.link"
 local TEST_NS = "192.168.5.2:53"  -- Kong local official env
-local TEST_NS = "192.168.1.1:53"
 
 local TEST_NSS = { TEST_NS }
 
