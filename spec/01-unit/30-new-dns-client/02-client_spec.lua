@@ -153,7 +153,6 @@ describe("[DNS client]", function()
 
       it("not if ipv4 exists", function()
         writefile(hosts_path, "1.2.3.4 localhost")
-
         local cli = assert(client_new())
 
         -- IPv6 is not defined
@@ -604,7 +603,6 @@ describe("[DNS client]", function()
       end)
     end
     end
-
   end)
 
   it("fetching answers without nameservers errors", function()
@@ -643,8 +641,9 @@ describe("[DNS client]", function()
   end)
 
   it("cache hit and ttl", function()
-    -- TOOD: special answers with ttl 0
-    -- [{"name":"kong-gateway-testing.link","class":1,"address":"198.51.100.0","ttl":0,"type":1,"section":1}],
+    -- TOOD: The special 0-ttl record may cause this test failed
+    -- [{"name":"kong-gateway-testing.link","class":1,"address":"198.51.100.0",
+    --   "ttl":0,"type":1,"section":1}]
     local host = TEST_DOMAIN
 
     local cli = assert(client_new({ nameservers = TEST_NSS }))
@@ -662,16 +661,16 @@ describe("[DNS client]", function()
     assert.same(answers, value)
     local ttl_diff = answers.ttl - ttl
     assert(math.abs(ttl_diff - wait_time) < 1,
-           ("ttl diff:%s s should be near to %s s"):format(ttl_diff, wait_time))
+    ("ttl diff:%s s should be near to %s s"):format(ttl_diff, wait_time))
   end)
 
   it("fetching names case insensitive", function()
     query_func = function(self, original_query_func, name, options)
       return {{
-          name = "some.UPPER.case",
-          type = resolver.TYPE_A,
-          ttl = 30,
-        }}
+        name = "some.UPPER.case",
+        type = resolver.TYPE_A,
+        ttl = 30,
+      }}
     end
     local cli = assert(client_new({ nameservers = TEST_NSS }))
     local answers = cli:resolve("some.upper.CASE")
@@ -882,12 +881,12 @@ describe("[DNS client]", function()
 
   it("recursive lookups failure - single", function()
     local entry1 = {{
-        type = resolver.TYPE_CNAME,
-        cname = "hello.world",
-        class = 1,
-        name = "hello.world",
-        ttl = 0,
-      }}
+      type = resolver.TYPE_CNAME,
+      cname = "hello.world",
+      class = 1,
+      name = "hello.world",
+      ttl = 0,
+    }}
 
     -- Note: the bad case would be that the below lookup would hang due to round-robin on an empty table
     local cli = assert(client_new({ nameservers = TEST_NSS}))
@@ -1026,8 +1025,6 @@ describe("[DNS client]", function()
           name = host,
           ttl = 10,
         },
-        touch = 0,
-        expire = ngx.now()+10,
       }
       -- insert in the cache
       cli.cache:set(entry[1].name .. ":" .. entry[1].type, {ttl=0}, entry)
@@ -1046,20 +1043,16 @@ describe("[DNS client]", function()
     it("SRV-answers with 1 entry, round-robin",function()
       local cli = assert(client_new({ nameservers = TEST_NSS }))
       local host = "hello.world"
-      local entry = {
-        {
-          type = resolver.TYPE_SRV,
-          target = "1.2.3.4",
-          port = 321,
-          weight = 10,
-          priority = 10,
-          class = 1,
-          name = host,
-          ttl = 10,
-        },
-        touch = 0,
-        expire = ngx.now()+10,
-      }
+      local entry = {{
+        type = resolver.TYPE_SRV,
+        target = "1.2.3.4",
+        port = 321,
+        weight = 10,
+        priority = 10,
+        class = 1,
+        name = host,
+        ttl = 10,
+      }}
       -- insert in the cache
       cli.cache:set(entry[1].name .. ":" .. entry[1].type, { ttl=0 }, entry)
 
@@ -1106,8 +1099,6 @@ describe("[DNS client]", function()
           name = host,
           ttl = 10,
         },
-        touch = 0,
-        expire = ngx.now()+10,
       }
       -- insert in the cache
       cli.cache:set(entry[1].name .. ":" .. entry[1].type, { ttl = 0 }, entry)
@@ -1125,31 +1116,23 @@ describe("[DNS client]", function()
     end)
     it("port passing",function()
       local cli = assert(client_new({ nameservers = TEST_NSS }))
-      local entry_a = {
-        {
-          type = resolver.TYPE_A,
-          address = "1.2.3.4",
-          class = 1,
-          name = "a.answers.test",
-          ttl = 10,
-        },
-        touch = 0,
-        expire = ngx.now()+10,
-      }
-      local entry_srv = {
-        {
-          type = resolver.TYPE_SRV,
-          target = "a.answers.test",
-          port = 8001,
-          weight = 5,
-          priority = 20,
-          class = 1,
-          name = "srv.answers.test",
-          ttl = 10,
-        },
-        touch = 0,
-        expire = ngx.now()+10,
-      }
+      local entry_a = {{
+        type = resolver.TYPE_A,
+        address = "1.2.3.4",
+        class = 1,
+        name = "a.answers.test",
+        ttl = 10,
+      }}
+      local entry_srv = {{
+        type = resolver.TYPE_SRV,
+        target = "a.answers.test",
+        port = 8001,
+        weight = 5,
+        priority = 20,
+        class = 1,
+        name = "srv.answers.test",
+        ttl = 10,
+      }}
       -- insert in the cache
       cli.cache:set(entry_a[1].name..":"..entry_a[1].type, { ttl = 0 }, entry_a)
       cli.cache:set(entry_srv[1].name..":"..entry_srv[1].type, { ttl = 0 }, entry_srv)
@@ -1208,6 +1191,7 @@ describe("[DNS client]", function()
       ip, port, _ = cli:resolve(host, { return_random = true })
       assert.same(port, "recursion detected for name: srvrecurse.kong-gateway-testing.link")
     end)
+
     it("resolving in correct answers-type order",function()
       local function config(cli)
         -- function to insert 2 answerss in the cache
@@ -1335,7 +1319,6 @@ describe("[DNS client]", function()
     assert.are.equal(NOT_FOUND_ERROR, err1)
     answers1 = assert(cli.cache:get(qname .. ":" .. resolver.TYPE_A))
 
-
     -- make a second request, result from cache, still called only once
     answers2, err2, _ = cli:resolve(qname, { qtype = resolver.TYPE_A })
     assert.is_nil(answers2)
@@ -1344,7 +1327,6 @@ describe("[DNS client]", function()
     answers2 = assert(cli.cache:get(qname .. ":" .. resolver.TYPE_A))
     assert.equal(answers1, answers2)
     assert.falsy(answers2.expired)
-
 
     -- wait for expiry of _ttl and retry, still called only once
     ngx.sleep(empty_ttl+0.5 * stale_ttl)
