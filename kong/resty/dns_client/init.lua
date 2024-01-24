@@ -293,7 +293,7 @@ end
 
 
 local function resolve_query(self, name, qtype, tries)
-    --log(tries, "query")
+    log(tries, "query")
     local key = name .. ":" .. qtype
     stats_incr(self.stats, key, "query")
 
@@ -315,7 +315,7 @@ local function resolve_query(self, name, qtype, tries)
     end
 
     process_answers(self, name, qtype, answers)
-    --log(tries, answers.errstr or #answers)
+    log(tries, answers.errstr or #answers)
 
     return answers, nil, answers.ttl
 end
@@ -323,12 +323,12 @@ end
 
 local function start_stale_update_task(self, key, name, qtype)
     timer_at(0, function (premature)
-        if not premature then
-            local answers = resolve_query(self, name, qtype, {})
-            if answers then
-                self.cache:set(key, { ttl = answers.ttl }, answers)
-                insert_last_type(self.cache, name, qtype)
-            end
+        if premature then return end
+
+        local answers = resolve_query(self, name, qtype, {})
+        if answers and (not answers.errcode or answers.errcode == 3) then
+            self.cache:set(key, { ttl = answers.ttl }, answers)
+            insert_last_type(self.cache, name, qtype)
         end
     end)
 end
@@ -376,7 +376,7 @@ local function resolve_name_type(self, name, qtype, opts, tries)
     local key = name .. ":" .. qtype
 
     stats_init(self.stats, key)
-    --log(tries, key)
+    log(tries, key)
 
     if detect_recursion(opts, key) then
         return nil, "recursion detected for name: " .. key
@@ -391,7 +391,7 @@ local function resolve_name_type(self, name, qtype, opts, tries)
 
     if hit_level and hit_level < 3 then
         stats_incr(self.stats, key, hitstrs[hit_level])
-        --log(tries, hitstrs[hit_level])
+        log(tries, hitstrs[hit_level])
     end
 
     --assert(answers or err)
@@ -462,7 +462,7 @@ end
 
 local function resolve_all(self, name, opts, tries)
     local key = "fast:" .. name .. ":" .. (opts.qtype or "all")
-    --log(tries, key)
+    log(tries, key)
 
     if detect_recursion(opts, key) then
         return nil, "recursion detected for name: " .. name
@@ -473,7 +473,7 @@ local function resolve_all(self, name, opts, tries)
 
     -- lookup fastly with the key `fast:<qname>:<qtype>/all`
     local answers, err, hit_level = self.cache:get(key)
-    if not answers then
+    if not answers or answers.expired then
         answers, err, tries = resolve_names_and_types(self, name, opts, tries)
         if not opts.cache_only and answers then
             self.cache:set(key, { ttl = answers.ttl }, answers)
@@ -481,12 +481,12 @@ local function resolve_all(self, name, opts, tries)
 
     else
         stats_incr(self.stats, name, hitstrs[hit_level])
-        --log(tries, hitstrs[hit_level])
+        log(tries, hitstrs[hit_level])
     end
 
     -- dereference CNAME
     if opts.qtype ~= TYPE_CNAME and answers and answers[1].type == TYPE_CNAME then
-        --log(tries, "cname")
+        log(tries, "cname")
         stats_incr(self.stats, name, "cname")
         return resolve_all(self, answers[1].cname, opts, tries)
     end

@@ -1,25 +1,14 @@
 local _writefile = require("pl.utils").writefile
 local tmpname = require("pl.path").tmpname
-local pretty = require("pl.pretty").write
 
 -- hosted in Route53 in the AWS sandbox
 local TEST_DOMAIN = "kong-gateway-testing.link"
-local TEST_NS = "198.51.100.0:53"
 local TEST_NS = "192.168.5.2:53"  -- Kong local official env
+local TEST_NS = "192.168.1.1:53"
 
 local TEST_NSS = { TEST_NS }
 
-
 local NOT_FOUND_ERROR = 'no available records'
-
-local logerr = function(...)
-  ngx.log(ngx.ERR, ...)
-end
-
-
-local dump = function(...)
-  print(pretty({...}))
-end
 
 describe("[DNS client]", function()
 
@@ -1376,11 +1365,11 @@ describe("[DNS client]", function()
     local answers1, answers2, err1, err2, _
     answers1, err1, _ = cli:resolve(qname, { qtype = resolver.TYPE_A })
     assert.is_nil(answers1)
-    assert.are.equal(1, call_count)
+    assert.are.equal(call_count, 1)
     assert.are.equal("no available records", err1)
     answers1 = assert(cli.cache:get(qname .. ":" .. resolver.TYPE_A))
 
-    -- try again, from cache, should still be called only once
+    -- try again, HIT from cache, not stale
     answers2, err2, _ = cli:resolve(qname, { qtype = resolver.TYPE_A })
     assert.is_nil(answers2)
     assert.are.equal(call_count, 1)
@@ -1389,23 +1378,30 @@ describe("[DNS client]", function()
     assert.are.equal(answers1, answers2)
     assert.falsy(answers1.expired)
 
-    -- wait for expiry of ttl and retry, still 1 call, but now stale result
+    -- wait for expiry of ttl and retry, HIT and stale
     ngx.sleep(error_ttl + 0.5 * stale_ttl)
     answers2, err2, _ = cli:resolve(qname, { qtype = resolver.TYPE_A })
     assert.is_nil(answers2)
     assert.are.equal(call_count, 1)
     assert.are.equal(err1, err2)
+
     answers2 = assert(cli.cache:get(qname .. ":" .. resolver.TYPE_A))
     assert.is_true(answers2.expired)
-
-    answers2.expired = nil  -- clear
+    answers2.expired = nil  -- clear to be same with answers1
     assert.are.same(answers1, answers2)
+    answers2.expired = true
+
+    -- async stale updating task
+    ngx.sleep(0.1 * stale_ttl)
+    assert.are.equal(call_count, 2)
 
     -- wait for expiry of stale_ttl and retry, 2 calls, new result
     ngx.sleep(0.75 * stale_ttl)
+    assert.are.equal(call_count, 2)
+
     answers2, err2, _ = cli:resolve(qname, { qtype = resolver.TYPE_A })
     assert.is_nil(answers2)
-    assert.are.equal(call_count, 2)  -- 2 calls now
+    assert.are.equal(call_count, 3)
     assert.are.equal(err1, err2)
     answers2 = assert(cli.cache:get(qname .. ":" .. resolver.TYPE_A))
     assert.are_not.equal(answers1, answers2)  -- a new answers
