@@ -659,7 +659,7 @@ describe("[DNS client]", function()
     assert.are.equal(answers, answers2) -- same table from L1 cache
 
     local ttl, err, value = cli.cache:peek("fast:" .. host .. ":all")
-    --assert.same(answers, value)
+    assert.same(answers, value)
     local ttl_diff = answers.ttl - ttl
     assert(math.abs(ttl_diff - wait_time) < 1,
            ("ttl diff:%s s should be near to %s s"):format(ttl_diff, wait_time))
