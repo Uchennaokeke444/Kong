@@ -35,6 +35,10 @@ jobs:
           trigger_label: 'cherry-pick kong-ee' # trigger based on this label
           pull_description: |-
             Automated cherry-pick to `${target_branch}`, triggered by a label in https://github.com/${owner}/${repo}/pull/${pull_number} :robot:.
+
+            ## Original description
+
+            #{pull_description}
           upstream_repo: 'kong/kong-ee'
           branch_map: |-
             {

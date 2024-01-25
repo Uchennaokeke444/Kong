@@ -80,7 +80,7 @@ local function new(self)
     end
   end
 
-  local replace_dashes = require("kong.tools.string").replace_dashes
+  local http_get_header = require("kong.tools.http").get_header
 
 
   ---
@@ -625,7 +625,7 @@ local function new(self)
       error("header name must be a string", 2)
     end
 
-    return var["http_" .. replace_dashes(name)]
+    return http_get_header(name)
   end
 
 
