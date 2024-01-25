@@ -6,10 +6,8 @@ local resolver = require("resty.dns.resolver")
 
 local math_min = math.min
 local timer_at = ngx.timer.at
-local math_random = math.random
 local table_insert = table.insert
 local table_remove = table.remove
-local string_lower = string.lower
 local deep_copy = function (t) return t end -- TODO require("kong.tools.utils").deep_copy
 
 -- debug

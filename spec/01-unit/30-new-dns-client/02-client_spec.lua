@@ -157,7 +157,7 @@ describe("[DNS client]", function()
         local cli = assert(client_new())
 
         -- IPv6 is not overwritten
-        answers = cli.cache:get("localhost:28")
+        local answers = cli.cache:get("localhost:28")
         assert.equal("[::1:2:3:4]", answers[1].address)
 
         -- IPv4 is not defined
@@ -265,7 +265,7 @@ describe("[DNS client]", function()
         local cli = assert(client_new())
         cli:insert_last_type("host", resolver.TYPE_CNAME)
 
-        local answers, err = cli:resolve("host")
+        cli:resolve("host")
 
         assert.same({
           'host.one.com:5',
@@ -294,7 +294,7 @@ describe("[DNS client]", function()
 
         local list = hook_query_func_get_list()
         local cli = assert(client_new())
-        local answers, err = cli:resolve("host.")
+        cli:resolve("host.")
 
         assert.same({
             'host.:33',
@@ -313,7 +313,7 @@ describe("[DNS client]", function()
 
         local list = hook_query_func_get_list()
         local cli = assert(client_new())
-        local answers, err = cli:resolve("host.")
+        cli:resolve("host.")
 
         assert.same({
             'host.:33',
@@ -332,7 +332,7 @@ describe("[DNS client]", function()
 
         local list = hook_query_func_get_list()
         local cli = assert(client_new())
-        local answers, err = cli:resolve("host.")
+        cli:resolve("host.")
 
         assert.same({
           'host.:33',
@@ -353,7 +353,7 @@ describe("[DNS client]", function()
         local cli = assert(client_new())
         cli:insert_last_type("host.", resolver.TYPE_CNAME)
 
-        local answers, err = cli:resolve("host.")
+        cli:resolve("host.")
         assert.same({
             'host.:5',
             'host.:33',
@@ -374,7 +374,7 @@ describe("[DNS client]", function()
 
         local list = hook_query_func_get_list()
         local cli = assert(client_new({ order = { "AAAA" } }))  -- IPv6 type
-        local answers, err = cli:resolve("host")
+        cli:resolve("host")
 
         assert.same({
             'host.one.com:28',
@@ -392,7 +392,7 @@ describe("[DNS client]", function()
 
         local list = hook_query_func_get_list()
         local cli = assert(client_new({ order = { "AAAA" } }))  -- IPv6 type
-        local answers, err = cli:resolve("host")
+        cli:resolve("host")
 
         assert.same({
           'host.local.domain.com:28',
@@ -411,7 +411,7 @@ describe("[DNS client]", function()
         local cli = assert(client_new({ order = { "AAAA" } }))  -- IPv6 type
         cli:insert_last_type("host", resolver.TYPE_CNAME)
 
-        local answers, err = cli:resolve("host")
+        cli:resolve("host")
         assert.same({
             'host.one.com:28',
             'host.two.com:28',
@@ -431,7 +431,7 @@ describe("[DNS client]", function()
 
         local list = hook_query_func_get_list()
         local cli = assert(client_new({ order = { "AAAA" } }))  -- IPv6 type
-        local answers, err = cli:resolve("host.")
+        cli:resolve("host.")
         assert.same({
             'host.:28',
           }, list)
@@ -446,7 +446,7 @@ describe("[DNS client]", function()
 
         local list = hook_query_func_get_list()
         local cli = assert(client_new({ order = { "AAAA" } }))  -- IPv6 type
-        local answers, err = cli:resolve("host.")
+        cli:resolve("host.")
 
         assert.same({
           'host.:28',
@@ -464,7 +464,7 @@ describe("[DNS client]", function()
         local cli = assert(client_new({ order = { "AAAA" } }))  -- IPv6 type
         cli:insert_last_type("host", resolver.TYPE_CNAME)
 
-        local answers, err = cli:resolve("host.")
+        cli:resolve("host.")
 
         assert.same({
             'host.:28',
@@ -481,7 +481,7 @@ describe("[DNS client]", function()
 
       local list = hook_query_func_get_list()
       local cli = assert(client_new())
-      local answers, err = cli:resolve("local.host")
+      cli:resolve("local.host")
 
       assert.same({
         'local.host:33',
@@ -505,13 +505,13 @@ describe("[DNS client]", function()
       local list = hook_query_func_get_list()
       -- perferred IP type: IPv4 (A takes priority in order)
       local cli = assert(client_new({ order = { "LAST", "SRV", "A", "AAAA" } }))
-      local answers, err = cli:resolve("host")
+      local answers = cli:resolve("host")
       assert.same(answers[1].address, "127.0.0.1")
       assert.same({}, list) -- hit on cache, so no query to the nameserver
 
       -- perferred IP type: IPv6 (AAAA takes priority in order)
       local cli = assert(client_new({ order = { "LAST", "SRV", "AAAA", "A" } }))
-      local answers, err = cli:resolve("host")
+      local answers = cli:resolve("host")
       assert.same(answers[1].address, "[::1]")
       assert.same({}, list)
     end)
@@ -583,7 +583,7 @@ describe("[DNS client]", function()
         assert.same(cli.r_opts.timeout, timeout)
 
         local start_time = ngx.now()
-        local answers, err = cli:resolve("timeout.com")
+        local answers = cli:resolve("timeout.com")
         assert.is.Nil(answers)
         assert.is("DNS server error: timeout" .. timeout .. attempts)
         local duration = ngx.now() - start_time
@@ -621,7 +621,7 @@ describe("[DNS client]", function()
     local typ = resolver.TYPE_CNAME
 
     local cli = assert(client_new({ nameservers = TEST_NSS }))
-    local answers, err, trier = cli:resolve(host .. ".", { qtype = typ })
+    local answers = cli:resolve(host .. ".", { qtype = typ })
 
     assert.are.equal(host, answers[1].name) -- answers name does not contain "."
     assert.are.equal(typ, answers[1].type)
@@ -645,7 +645,7 @@ describe("[DNS client]", function()
     local answers2 = assert(cli:resolve(host))
     assert.are.equal(answers, answers2) -- same table from L1 cache
 
-    local ttl, err, value = cli.cache:peek("fast:" .. host .. ":all")
+    local ttl, _, value = cli.cache:peek("fast:" .. host .. ":all")
     assert.same(answers, value)
     local ttl_diff = answers.ttl - ttl
     assert(math.abs(ttl_diff - wait_time) < 1,
@@ -1162,7 +1162,7 @@ describe("[DNS client]", function()
 
     it("recursive SRV pointing to itself",function()
       local cli = assert(client_new({ nameservers = TEST_NSS }))
-      local ip, answers, port, host, err, _
+      local answers, port, host, err, _
       host = "srvrecurse."..TEST_DOMAIN
 
       -- resolve SRV specific should return the answers including its
@@ -1176,7 +1176,7 @@ describe("[DNS client]", function()
 
       -- default order, SRV, A; the recursive SRV answers fails, and it falls
       -- back to the IP4 address
-      ip, port, _ = cli:resolve(host, { return_random = true })
+      _, port, _ = cli:resolve(host, { return_random = true })
       assert.same(port, "recursion detected for name: srvrecurse.kong-gateway-testing.link")
     end)
 
@@ -1277,7 +1277,7 @@ describe("[DNS client]", function()
     local answers, _, _ = cli:resolve(qname, { qtype = resolver.TYPE_A })
     assert.equal(valid_ttl, answers.ttl)
 
-    local ttl, err, value = cli.cache:peek("fast:" .. qname .. ":1")
+    local ttl = cli.cache:peek("fast:" .. qname .. ":1")
     assert.is_near(valid_ttl, ttl, 0.1)
   end)
 
