@@ -36,6 +36,9 @@ local plugins = {
   "azure-functions",
   "zipkin",
   "opentelemetry",
+  "ai-proxy",
+  "ai-prompt-decorator",
+  "ai-prompt-template",
 }
 
 local plugin_map = {}
@@ -218,6 +221,11 @@ local constants = {
   CLUSTERING_TIMEOUT = 5000, -- 5 seconds
   CLUSTERING_PING_INTERVAL = 30, -- 30 seconds
   CLUSTERING_OCSP_TIMEOUT = 5000, -- 5 seconds
+  CLUSTERING_DATA_PLANE_ERROR = {
+    CONFIG_PARSE     = "declarative configuration parse failure",
+    RELOAD           = "configuration reload failed",
+    GENERIC          = "generic or unknown error",
+  },
 
   CLEAR_HEALTH_STATUS_DELAY = 300, -- 300 seconds
 

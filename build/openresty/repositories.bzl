@@ -30,7 +30,7 @@ def openresty_repositories():
         openresty_http_archive_wrapper,
         name = "openresty",
         build_file = "//build/openresty:BUILD.openresty.bazel",
-        sha256 = "33a84c63cfd9e46b0e5c62eb2ddc7b8068bda2e1686314343b89fc3ffd24cdd3",
+        sha256 = "32ec1a253a5a13250355a075fe65b7d63ec45c560bbe213350f0992a57cd79df",
         strip_prefix = "openresty-" + openresty_version,
         urls = [
             "https://openresty.org/download/openresty-" + openresty_version + ".tar.gz",
@@ -65,6 +65,15 @@ def openresty_repositories():
         name = "lua-resty-events",
         branch = KONG_VAR["LUA_RESTY_EVENTS"],
         remote = "https://github.com/Kong/lua-resty-events",
+        build_file_content = _NGINX_MODULE_DUMMY_FILE,
+        recursive_init_submodules = True,
+    )
+
+    maybe(
+        new_git_repository,
+        name = "ngx_brotli",
+        branch = KONG_VAR["NGX_BROTLI"],
+        remote = "https://github.com/google/ngx_brotli",
         build_file_content = _NGINX_MODULE_DUMMY_FILE,
         recursive_init_submodules = True,
     )

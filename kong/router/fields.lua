@@ -5,6 +5,7 @@ local type = type
 local ipairs = ipairs
 local assert = assert
 local tonumber = tonumber
+local setmetatable = setmetatable
 local tb_sort = table.sort
 local tb_concat = table.concat
 local replace_dashes_lower = require("kong.tools.string").replace_dashes_lower
@@ -20,6 +21,38 @@ local server_name   = require("ngx.ssl").server_name
 local PREFIX_LEN = 13 -- #"http.headers."
 local HTTP_HEADERS_PREFIX = "http.headers."
 local HTTP_QUERIES_PREFIX = "http.queries."
+
+
+local HTTP_FIELDS = {
+
+  ["String"] = {"net.protocol", "tls.sni",
+                "http.method", "http.host",
+                "http.path",
+                "http.path.segments.*",
+                "http.headers.*",
+                "http.queries.*",
+               },
+
+  ["Int"]    = {"net.src.port", "net.dst.port",
+                "http.path.segments.len",
+               },
+
+  ["IpAddr"] = {"net.src.ip", "net.dst.ip",
+               },
+}
+
+
+local STREAM_FIELDS = {
+
+  ["String"] = {"net.protocol", "tls.sni",
+               },
+
+  ["Int"]    = {"net.src.port", "net.dst.port",
+               },
+
+  ["IpAddr"] = {"net.src.ip", "net.dst.ip",
+               },
+}
 
 
 local FIELDS_FUNCS = {
@@ -164,9 +197,44 @@ else  -- stream
 end -- is_http
 
 
+-- stream subsystem need not to generate func
+local get_field_accessor = function(funcs, field) end
+
+
 if is_http then
 
   local fmt = string.format
+  local ngx_null = ngx.null
+  local re_split = require("ngx.re").split
+
+
+  local HTTP_SEGMENTS_PREFIX = "http.path.segments."
+  local HTTP_SEGMENTS_PREFIX_LEN = #HTTP_SEGMENTS_PREFIX
+  local HTTP_SEGMENTS_OFFSET = 1
+
+
+  local get_http_segments
+  do
+    local HTTP_SEGMENTS_REG_CTX = { pos = 2, }  -- skip first '/'
+
+    get_http_segments = function(params)
+      if not params.segments then
+        HTTP_SEGMENTS_REG_CTX.pos = 2 -- reset ctx, skip first '/'
+        params.segments = re_split(params.uri, "/", "jo", HTTP_SEGMENTS_REG_CTX)
+      end
+
+      return params.segments
+    end
+  end
+
+
+  FIELDS_FUNCS["http.path.segments.len"] =
+  function(params)
+    local segments = get_http_segments(params)
+
+    return #segments
+  end
+
 
   -- func => get_headers or get_uri_args
   -- name => "headers" or "queries"
@@ -188,50 +256,144 @@ if is_http then
   end
 
 
-  setmetatable(FIELDS_FUNCS, {
-  __index = function(_, field)
+  get_field_accessor = function(funcs, field)
+    local f = funcs[field]
+    if f then
+      return f
+    end
+
     local prefix = field:sub(1, PREFIX_LEN)
 
+    -- generate for http.headers.*
+
     if prefix == HTTP_HEADERS_PREFIX then
-      return function(params)
+      local name = field:sub(PREFIX_LEN + 1)
+
+      f = function(params)
         if not params.headers then
           params.headers = get_http_params(get_headers, "headers", "lua_max_req_headers")
         end
 
-        return params.headers[field:sub(PREFIX_LEN + 1)]
-      end
+        return params.headers[name]
+      end -- f
 
-    elseif prefix == HTTP_QUERIES_PREFIX then
-      return function(params)
+      funcs[field] = f
+      return f
+    end -- if prefix == HTTP_HEADERS_PREFIX
+
+    -- generate for http.queries.*
+
+    if prefix == HTTP_QUERIES_PREFIX then
+      local name = field:sub(PREFIX_LEN + 1)
+
+      f = function(params)
         if not params.queries then
           params.queries = get_http_params(get_uri_args, "queries", "lua_max_uri_args")
         end
 
-        return params.queries[field:sub(PREFIX_LEN + 1)]
-      end
-    end
+        return params.queries[name]
+      end -- f
+
+      funcs[field] = f
+      return f
+    end -- if prefix == HTTP_QUERIES_PREFIX
+
+    -- generate for http.path.segments.*
+
+    if field:sub(1, HTTP_SEGMENTS_PREFIX_LEN) == HTTP_SEGMENTS_PREFIX then
+      local range = field:sub(HTTP_SEGMENTS_PREFIX_LEN + 1)
+
+      f = function(params)
+        local segments = get_http_segments(params)
+
+        local value = segments[range]
+
+        if value then
+          return value ~= ngx_null and value or nil
+        end
+
+        -- "/a/b/c" => 1="a", 2="b", 3="c"
+        -- http.path.segments.0 => params.segments[1 + 0] => a
+        -- http.path.segments.1_2 => b/c
+
+        local p = range:find("_", 1, true)
+
+        -- only one segment, e.g. http.path.segments.1
+
+        if not p then
+          local pos = tonumber(range)
+
+          value = pos and segments[HTTP_SEGMENTS_OFFSET + pos] or nil
+          segments[range] = value or ngx_null
+
+          return value
+        end
+
+        -- (pos1, pos2) defines a segment range, e.g. http.path.segments.1_2
+
+        local pos1 = tonumber(range:sub(1, p - 1))
+        local pos2 = tonumber(range:sub(p + 1))
+        local segs_count = #segments - HTTP_SEGMENTS_OFFSET
+
+        if not pos1 or not pos2 or
+           pos1 >= pos2 or pos1 > segs_count or pos2 > segs_count
+        then
+          segments[range] = ngx_null
+          return nil
+        end
+
+        local buf = buffer.new()
+
+        for p = pos1, pos2 - 1 do
+          buf:put(segments[HTTP_SEGMENTS_OFFSET + p], "/")
+        end
+        buf:put(segments[HTTP_SEGMENTS_OFFSET + pos2])
+
+        value = buf:get()
+        segments[range] = value
+
+        return value
+      end -- f
+
+      funcs[field] = f
+      return f
+    end -- if field:sub(1, HTTP_SEGMENTS_PREFIX_LEN)
 
     -- others return nil
   end
-  })
 
 end -- is_http
 
 
-local function get_value(field, params, ctx)
-  local func = FIELDS_FUNCS[field]
+local _M = {}
+local _MT = { __index = _M, }
 
-  if not func then  -- unknown field
-    error("unknown router matching schema field: " .. field)
-  end -- if func
+
+_M.HTTP_FIELDS = HTTP_FIELDS
+_M.STREAM_FIELDS = STREAM_FIELDS
+
+
+function _M.new(fields)
+  return setmetatable({
+      fields = fields,
+      funcs = {},
+    }, _MT)
+end
+
+
+function _M:get_value(field, params, ctx)
+  local func = FIELDS_FUNCS[field] or
+               get_field_accessor(self.funcs, field)
+
+  assert(func, "unknown router matching schema field: " .. field)
 
   return func(params, ctx)
 end
 
 
-local function fields_visitor(fields, params, ctx, cb)
-  for _, field in ipairs(fields) do
-    local value = get_value(field, params, ctx)
+function _M:fields_visitor(params, ctx, cb)
+  for _, field in ipairs(self.fields) do
+    local value = self:get_value(field, params, ctx)
 
     local res, err = cb(field, value)
     if not res then
@@ -247,11 +409,11 @@ end
 local str_buf = buffer.new(64)
 
 
-local function get_cache_key(fields, params, ctx)
+function _M:get_cache_key(params, ctx)
   str_buf:reset()
 
   local res =
-  fields_visitor(fields, params, ctx, function(field, value)
+  self:fields_visitor(params, ctx, function(field, value)
 
     -- these fields were not in cache key
     if field == "net.protocol" then
@@ -292,11 +454,11 @@ local function get_cache_key(fields, params, ctx)
 end
 
 
-local function fill_atc_context(context, fields, params)
+function _M:fill_atc_context(context, params)
   local c = context
 
   local res, err =
-  fields_visitor(fields, params, nil, function(field, value)
+  self:fields_visitor(params, nil, function(field, value)
 
     local prefix = field:sub(1, PREFIX_LEN)
 
@@ -335,7 +497,7 @@ local function fill_atc_context(context, fields, params)
 end
 
 
-local function _set_ngx(mock_ngx)
+function _M._set_ngx(mock_ngx)
   if mock_ngx.var then
     var = mock_ngx.var
   end
@@ -356,11 +518,4 @@ local function _set_ngx(mock_ngx)
 end
 
 
-return {
-  get_value = get_value,
-
-  get_cache_key = get_cache_key,
-  fill_atc_context = fill_atc_context,
-
-  _set_ngx = _set_ngx,
-}
+return _M

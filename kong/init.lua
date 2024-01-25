@@ -746,8 +746,9 @@ function Kong.init()
   require("resty.kong.var").patch_metatable()
 
   if config.dedicated_config_processing and is_data_plane(config) then
-    -- TODO: figure out if there is better value than 2048
-    local ok, err = process.enable_privileged_agent(2048)
+    -- TODO: figure out if there is better value than 4096
+    -- 4096 is for the cocurrency of the lua-resty-timer-ng
+    local ok, err = process.enable_privileged_agent(4096)
     if not ok then
       error(err)
     end
@@ -923,7 +924,7 @@ function Kong.init_worker()
   if is_not_control_plane then
     ok, err = execute_cache_warmup(kong.configuration)
     if not ok then
-      ngx_log(ngx_ERR, "failed to warm up the DB cache: " .. err)
+      ngx_log(ngx_ERR, "failed to warm up the DB cache: ", err)
     end
   end
 
@@ -1830,10 +1831,6 @@ local function serve_content(module)
   log_init_worker_errors(ctx)
 
   ngx.header["Access-Control-Allow-Origin"] = ngx.req.get_headers()["Origin"] or "*"
-
-  if kong.configuration.log_level == "debug" then
-    ngx.header["Kong-Test-Transaction-Id"] = kong_global.get_current_transaction_id()
-  end
 
   lapis.serve(module)
 
