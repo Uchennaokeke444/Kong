@@ -312,9 +312,8 @@ local function resolve_query(self, name, qtype, tries)
     end
 
     if not answers then
-        -- log(tries, q_tries)
         stats_count(self.stats, key, "query_fail")
-        return nil, "DNS server error: " .. (err or "unknown")
+        return nil, "Query to DNS server failed: " .. (err or "unknown")
     end
 
     process_answers(self, name, qtype, answers)
@@ -401,6 +400,10 @@ local function resolve_name_type(self, name, qtype, opts, tries)
     if hit_level and hit_level < 3 then
         stats_count(self.stats, key, hitstrs[hit_level])
         -- log(tries, hitstrs[hit_level])
+    end
+
+    if err or answers.errcode then
+        log(tries, { name, qtype, err or "DNS server replied error: " .. answers.errstr})
     end
 
     return answers, err
