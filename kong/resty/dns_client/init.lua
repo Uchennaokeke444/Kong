@@ -57,21 +57,13 @@ local mt = { __index = _M }
 
 local function stats_init(stats, name)
     if not stats[name] then
-        stats[name] = {
-            runs = 0,
-            query = 0,
-            fails = 0,
-            hit_lru = 0,
-            hit_shm = 0,
-            cname = 0,
-            stale = 0,
-        }
+        stats[name] = {}
     end
 end
 
 
-local function stats_incr(stats, name, key)
-    stats[name][key] = stats[name][key] + 1
+local function stats_count(stats, name, key)
+    stats[name][key] = (stats[name][key] or 0) + 1
 end
 
 
@@ -305,9 +297,10 @@ end
 
 
 local function resolve_query(self, name, qtype, tries)
-    log(tries, "query")
+    --log(tries, "query")
+
     local key = name .. ":" .. qtype
-    stats_incr(self.stats, key, "query")
+    stats_count(self.stats, key, "query")
 
     local r, err = resolver:new(self.r_opts)
     if not r then
@@ -322,18 +315,24 @@ local function resolve_query(self, name, qtype, tries)
 
     if not answers then
         -- log(tries, q_tries)
-        stats_incr(self.stats, key, "fails")
+        stats_count(self.stats, key, "query_fail")
         return nil, "DNS server error: " .. (err or "unknown")
     end
 
     process_answers(self, name, qtype, answers)
-    log(tries, answers.errstr or #answers)
+
+    stats_count(self.stats, key, answers.errstr and
+                                 "query_err:" .. answers.errstr or "query_succ")
+
+    --log(tries, answers.errstr or #answers)
 
     return answers, nil, answers.ttl
 end
 
 
 local function start_stale_update_task(self, key, name, qtype)
+    stats_count(self.stats, key, "stale")
+
     timer_at(0, function (premature)
         if premature then return end
 
@@ -353,7 +352,6 @@ local function resolve_name_type_callback(self, name, qtype, opts, tries)
     if answers and not answers.expired then
         ttl = (ttl or 0) + self.stale_ttl
         if ttl > 0 then
-            stats_incr(self.stats, key, "stale")
             start_stale_update_task(self, key, name, qtype)
             answers.expired = true
             return answers, nil, ttl
@@ -388,9 +386,10 @@ local function resolve_name_type(self, name, qtype, opts, tries)
     local key = name .. ":" .. qtype
 
     stats_init(self.stats, key)
-    log(tries, key)
+    -- log(tries, key)
 
     if detect_recursion(opts, key) then
+        stats_count(self.stats, key, "fail_recur")
         return nil, "recursion detected for name: " .. key
     end
 
@@ -402,11 +401,9 @@ local function resolve_name_type(self, name, qtype, opts, tries)
     end
 
     if hit_level and hit_level < 3 then
-        stats_incr(self.stats, key, hitstrs[hit_level])
-        log(tries, hitstrs[hit_level])
+        stats_count(self.stats, key, hitstrs[hit_level])
+        -- log(tries, hitstrs[hit_level])
     end
-
-    --assert(answers or err)
 
     return answers, err
 end
@@ -474,34 +471,39 @@ end
 
 local function resolve_all(self, name, opts, tries)
     local key = "fast:" .. name .. ":" .. (opts.qtype or "all")
-    log(tries, key)
-
-    if detect_recursion(opts, key) then
-        return nil, "recursion detected for name: " .. name
-    end
+    --log(tries, key)
 
     stats_init(self.stats, name)
-    stats_incr(self.stats, name, "runs")
+    stats_count(self.stats, name, "runs")
+
+    if detect_recursion(opts, key) then
+        stats_count(self.stats, name, "fail_recur")
+        return nil, "recursion detected for name: " .. name
+    end
 
     -- lookup fastly with the key `fast:<qname>:<qtype>/all`
     local answers, err, hit_level = self.cache:get(key)
     if not answers or answers.expired then
+        stats_count(self.stats, name, "miss")
+
         answers, err, tries = resolve_names_and_types(self, name, opts, tries)
         if not opts.cache_only and answers then
             self.cache:set(key, { ttl = answers.ttl }, answers)
         end
 
     else
-        stats_incr(self.stats, name, hitstrs[hit_level])
-        log(tries, hitstrs[hit_level])
+        stats_count(self.stats, name, hitstrs[hit_level])
+        -- log(tries, hitstrs[hit_level])
     end
 
     -- dereference CNAME
     if opts.qtype ~= TYPE_CNAME and answers and answers[1].type == TYPE_CNAME then
-        log(tries, "cname")
-        stats_incr(self.stats, name, "cname")
+        -- log(tries, "cname")
+        stats_count(self.stats, name, "cname")
         return resolve_all(self, answers[1].cname, opts, tries)
     end
+
+    stats_count(self.stats, name, answers and "succ" or "fail")
 
     return answers, err, tries
 end
