@@ -2,7 +2,6 @@ local ngx = ngx
 local type = type
 local pcall = pcall
 local ipairs = ipairs
-local select = select
 local assert = assert
 local ngx_log = ngx.log
 local ngx_WARN = ngx.WARN
@@ -56,7 +55,7 @@ local function should_execute_original_func(group_name)
 end
 
 
-local function execute_hook(hook, hook_type, group_name, ...)
+local function execute_hook_vararg(hook, hook_type, group_name, ...)
   if not hook then
     return
   end  
@@ -67,39 +66,91 @@ local function execute_hook(hook, hook_type, group_name, ...)
 end
 
 
-local function execute_hooks(hooks, hook_type, group_name, ...)
+local function execute_hooks_vararg(hooks, hook_type, group_name, ...)
   if not hooks then
     return
   end
   for _, hook in ipairs(hooks) do
-    execute_hook(hook, hook_type, group_name, ...)
+    execute_hook_vararg(hook, hook_type, group_name, ...)
   end
 end
 
 
-local function execute_after_hooks(handlers, group_name, ...)
-  execute_hook(handlers.after_mut, "after_mut", group_name, ...)
-  execute_hooks(handlers.afters, "after", group_name, ...)
+local function execute_after_hooks_vararg(handlers, group_name, ...)
+  execute_hook_vararg(handlers.after_mut, "after_mut", group_name, ...)
+  execute_hooks_vararg(handlers.afters, "after", group_name, ...)
   return ...
 end
 
 
-local function wrap_function(group_name, original_func, handlers)
+local function wrap_function_vararg(group_name, original_func, handlers)
   return function (...)
     if should_execute_original_func(group_name) then
       return original_func(...)
     end
-    
-    if handlers.before_mut then
-      -- before_mut is not supported for varargs functions
-      local argc = select("#", ...)
-      if argc < 9 then
-        execute_hook(handlers.before_mut, "before_mut", group_name, ...)
-      end
-    end
+    execute_hooks_vararg(handlers.befores, "before", group_name, ...)
+    return execute_after_hooks_vararg(handlers, group_name, original_func(...))
+  end
+end
 
-    execute_hooks(handlers.befores, "before", group_name, ...)
-    return execute_after_hooks(handlers, group_name, original_func(...))
+
+local function execute_hook(hook, hook_type, group_name, a1, a2, a3, a4, a5, a6, a7, a8)
+  if not hook then
+    return
+  end
+  local ok, err = pcall(hook, a1, a2, a3, a4, a5, a6, a7, a8)
+  if not ok then
+    ngx_log(ngx_WARN, "failed to run ", hook_type, " hook of ", group_name, ": ", err)
+  end
+end
+
+
+local function execute_hooks(hooks, hook_type, group_name, a1, a2, a3, a4, a5, a6, a7, a8)
+  if not hooks then
+    return
+  end
+  for _, hook in ipairs(hooks) do
+    execute_hook(hook, hook_type, group_name, a1, a2, a3, a4, a5, a6, a7, a8)
+  end
+end
+
+
+local function execute_original_func(max_args, original_func, a1, a2, a3, a4, a5, a6, a7, a8)
+  if max_args == 0 then
+    return original_func()
+  elseif max_args == 1 then
+    return original_func(a1)
+  elseif max_args == 2 then
+    return original_func(a1, a2)
+  elseif max_args == 3 then
+    return original_func(a1, a2, a3)
+  elseif max_args == 4 then
+    return original_func(a1, a2, a3, a4)
+  elseif max_args == 5 then
+    return original_func(a1, a2, a3, a4, a5)
+  elseif max_args == 6 then
+    return original_func(a1, a2, a3, a4, a5, a6)
+  elseif max_args == 7 then
+    return original_func(a1, a2, a3, a4, a5, a6, a7)
+  else 
+    return original_func(a1, a2, a3, a4, a5, a6, a7, a8)
+  end
+end
+
+
+local function wrap_function(max_args, group_name, original_func, handlers)
+  return function(a1, a2, a3, a4, a5, a6, a7, a8)
+    if should_execute_original_func(group_name) then
+      a1, a2, a3, a4, a5, a6, a7, a8 = execute_original_func(max_args, original_func, a1, a2, a3, a4, a5, a6, a7, a8)
+      
+    else
+      execute_hook(handlers.before_mut, "before_mut", group_name, a1, a2, a3, a4, a5, a6, a7, a8)
+      execute_hooks(handlers.befores, "before", group_name, a1, a2, a3, a4, a5, a6, a7, a8)
+      a1, a2, a3, a4, a5, a6, a7, a8 = execute_original_func(max_args, original_func, a1, a2, a3, a4, a5, a6, a7, a8)
+      execute_hook(handlers.after_mut, "after_mut", group_name, a1, a2, a3, a4, a5, a6, a7, a8)
+      execute_hooks(handlers.afters, "after", group_name, a1, a2, a3, a4, a5, a6, a7, a8)
+    end
+    return a1, a2, a3, a4, a5, a6, a7, a8
   end
 end
 
@@ -110,15 +161,17 @@ function _M.hook_function(group_name, parent, child_key, max_args, handlers)
 
   if max_args == "varargs" then
     assert(handlers.before_mut == nil, "before_mut is not supported for varargs functions")
+    max_args = 9
   else
     assert(type(max_args) == "number", 'max_args must be a number or "varargs"')
     assert(max_args >= 0 and max_args <= 8, 'max_args must be >= 0 and <= 8, or "varargs"')
   end
 
-  local old_func = parent[child_key]
-  assert(type(old_func) == "function", "parent[" .. child_key .. "] must be a function")
+  local original_func = parent[child_key]
+  assert(type(original_func) == "function", "parent[" .. child_key .. "] must be a function")
 
-  parent[child_key] = wrap_function(group_name, old_func, handlers)
+  parent[child_key] = max_args < 9 and wrap_function(max_args, group_name, original_func, handlers)
+                                    or wrap_function_vararg(group_name, original_func, handlers)
 end
 
 
