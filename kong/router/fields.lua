@@ -255,56 +255,29 @@ if is_http then
     return params
   end
 
+  local function gen_http_header_field_accessor(name)
+    return function(params)
+      if not params.headers then
+        params.headers = get_http_params(get_headers, "headers", "lua_max_req_headers")
+      end
 
-  get_field_accessor = function(funcs, field)
-    local f = funcs[field]
-    if f then
-      return f
+      return params.headers[name]
     end
+  end
 
-    local prefix = field:sub(1, PREFIX_LEN)
+  local function gen_http_query_field_accessor(name)
+    return function(params)
+      if not params.queries then
+        params.queries = get_http_params(get_uri_args, "queries", "lua_max_uri_args")
+      end
 
-    -- generate for http.headers.*
+      return params.queries[name]
+    end
+  end
 
-    if prefix == HTTP_HEADERS_PREFIX then
-      local name = field:sub(PREFIX_LEN + 1)
-
-      f = function(params)
-        if not params.headers then
-          params.headers = get_http_params(get_headers, "headers", "lua_max_req_headers")
-        end
-
-        return params.headers[name]
-      end -- f
-
-      funcs[field] = f
-      return f
-    end -- if prefix == HTTP_HEADERS_PREFIX
-
-    -- generate for http.queries.*
-
-    if prefix == HTTP_QUERIES_PREFIX then
-      local name = field:sub(PREFIX_LEN + 1)
-
-      f = function(params)
-        if not params.queries then
-          params.queries = get_http_params(get_uri_args, "queries", "lua_max_uri_args")
-        end
-
-        return params.queries[name]
-      end -- f
-
-      funcs[field] = f
-      return f
-    end -- if prefix == HTTP_QUERIES_PREFIX
-
-    -- generate for http.path.segments.*
-
-    if field:sub(1, HTTP_SEGMENTS_PREFIX_LEN) == HTTP_SEGMENTS_PREFIX then
-      local range = field:sub(HTTP_SEGMENTS_PREFIX_LEN + 1)
-
-      f = function(params)
-        local segments = get_http_segments(params)
+  local function gen_http_segment_field_accessor(range)
+    return function(params)
+      local segments = get_http_segments(params)
 
         local value = segments[range]
 
@@ -353,10 +326,42 @@ if is_http then
         segments[range] = value
 
         return value
-      end -- f
+    end
+  end
 
-      funcs[field] = f
-      return f
+  get_field_accessor = function(funcs, field)
+    local field_accessor = funcs[field]
+    if field_accessor then
+      return field_accessor
+    end
+
+    local prefix = field:sub(1, PREFIX_LEN)
+
+    -- generate for http.headers.*
+
+    if prefix == HTTP_HEADERS_PREFIX then
+      local name = field:sub(PREFIX_LEN + 1)
+      field_accessor = gen_http_header_field_accessor(name)
+      funcs[field] = field_accessor
+      return field_accessor
+    end -- if prefix == HTTP_HEADERS_PREFIX
+
+    -- generate for http.queries.*
+
+    if prefix == HTTP_QUERIES_PREFIX then
+      local name = field:sub(PREFIX_LEN + 1)
+      field_accessor = gen_http_query_field_accessor(name)
+      funcs[field] = field_accessor
+      return field_accessor
+    end -- if prefix == HTTP_QUERIES_PREFIX
+
+    -- generate for http.path.segments.*
+
+    if field:sub(1, HTTP_SEGMENTS_PREFIX_LEN) == HTTP_SEGMENTS_PREFIX then
+      local range = field:sub(HTTP_SEGMENTS_PREFIX_LEN + 1)
+      field_accessor = gen_http_segment_field_accessor(range)
+      funcs[field] = field_accessor
+      return field_accessor
     end -- if field:sub(1, HTTP_SEGMENTS_PREFIX_LEN)
 
     -- others return nil
@@ -482,7 +487,13 @@ function _M:get_cache_key(params, ctx)
                                   visit_for_cache_key, str_buf)
   assert(res)
 
-  return str_buf:get()
+  --[[
+    returns a local variable instead of the tail call
+    to avoid the trace abort
+    (NYI: return to lower frame).
+  --]]
+  local cache_key = str_buf:get()
+  return cache_key
 end
 
 
