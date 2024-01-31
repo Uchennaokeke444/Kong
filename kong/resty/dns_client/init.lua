@@ -7,13 +7,14 @@ local resolver = require("resty.dns.resolver")
 local math_min = math.min
 local timer_at = ngx.timer.at
 local table_insert = table.insert
-local table_remove = table.remove
-local deep_copy = function (t) return t end -- TODO require("kong.tools.utils").deep_copy
+-- local deep_copy = function (t) return t end -- TODO require("kong.tools.utils").deep_copy
 
 -- debug
+--[[
 local json = require("cjson").encode
 
 local logerr = function (...) ngx.log(ngx.ERR, "+ debug:", ...) end
+]]
 local log = table_insert
 
 -- Constants and default values
@@ -42,7 +43,7 @@ local hitstrs = {
     [2] = "hit_shm",
 }
 
-local client_errors = {     -- client specific errors
+local errstrs = {     -- client specific errors
     [100] = "cache only lookup failed",
     [101] = "empty record received",
 }
@@ -139,6 +140,8 @@ function _M.new(opts)
         return nil, "no options table specified"
     end
 
+    local enable_ipv6 = opts.enable_ipv6
+
     -- parse resolv.conf
     local resolv, err = utils.parse_resolv_conf(opts.resolv_conf, enable_ipv6)
     if not resolv then
@@ -218,39 +221,25 @@ function _M.new(opts)
 end
 
 
-local function filter_unmatched_answers(qname, qtype, answers)
-    if qname:sub(-1) == "." then
-        qname = qname:sub(1, -2)
+local function process_answers(self, qname, qtype, answers)
+    local errcode = answers.errcode
+    if errcode then
+        answers.ttl = errcode == 3 and self.empty_ttl or self.error_ttl
+        return answers
     end
 
-    local unmatched = {}    -- table contains unmatched <key, answers>
+    local processed_answers = {}
+    local cname_answer
 
-    for i = #answers, 1, -1 do
-        local answer = answers[i]
+    local ttl = 0xffffffff
+
+    for _, answer in ipairs(answers) do
         answer.name = answer.name:lower()
 
-        if answer.name ~= qname or answer.type ~= qtype then
-            -- insert to unmatched
-            local key = answer.name .. ":" .. answer.type
-            if not unmatched[key] then
-                unmatched[key] = {}
-            end
-            table_insert(unmatched[key], 1, answer)
-            -- remove from answers
-            table_remove(answers, i)
-        end
-    end
+        if answer.type == TYPE_CNAME then
+            cname_answer = answer   -- use the last one as the real cname
 
-    return unmatched
-end
-
-
-local function process_answers_fields(self, answers)
-    local errcode = answers.errcode
-    if not errcode then
-        local ttl = answers[1].ttl
-
-        for _, answer in ipairs(answers) do
+        elseif answer.type == qtype then
             -- A compromise regarding https://github.com/Kong/kong/pull/3088
             if answer.type == TYPE_AAAA then
                 answer.address = utils.ipv6_bracket(answer.address)
@@ -258,39 +247,24 @@ local function process_answers_fields(self, answers)
                 answer.target = utils.ipv6_bracket(answer.target)
             end
 
-            ttl = math_min(ttl, answer.ttl)
+            table.insert(processed_answers, answer)
         end
 
-        answers.ttl = self.valid_ttl or ttl
-
-    elseif errcode == 3 or errcode == 101 then
-        answers.ttl = self.empty_ttl
-
-    else
-        answers.ttl = self.error_ttl
-    end
-end
-
-
--- NOTE: it might insert unmatched answers into cache
-local function process_answers(self, qname, qtype, answers)
-    if not answers.errcode then
-        local unmatched = filter_unmatched_answers(qname, qtype, answers)
-        for k, a in pairs(unmatched) do
-            process_answers_fields(self, a)
-            self.cache:set(k, { ttl = a.ttl }, a)
-            if not get_last_type(self.cache, a[1].name) then
-                insert_last_type(self.cache, a[1].name, a[1].type)
-            end
-        end
-
-        if #answers == 0 then
-            answers.errcode = 101
-            answers.errstr = client_errors[101]
-        end
+        ttl = math_min(ttl, answer.ttl)
     end
 
-    process_answers_fields(self, answers)
+    if #processed_answers == 0 then
+        if not cname_answer then
+            return { errcode = 101, errstr = errstrs[101], ttl = self.empty_ttl }
+        end
+
+        table_insert(processed_answers, cname_answer)
+        assert(processed_answers[1])
+    end
+
+    processed_answers.ttl = self.valid_ttl or ttl
+
+    return processed_answers
 end
 
 
@@ -306,17 +280,17 @@ local function resolve_query(self, name, qtype, tries)
     end
 
     local options = { additional_section = true, qtype = qtype }
-    local answers, err, q_tries = r:query(name, options, {})
+    local answers, err = r:query(name, options, {})
     if r.destroy then
         r:destroy()
     end
 
     if not answers then
         stats_count(self.stats, key, "query_fail")
-        return nil, "Query to DNS server failed: " .. (err or "unknown")
+        return nil, "DNS server error: " .. (err or "unknown")
     end
 
-    process_answers(self, name, qtype, answers)
+    answers = process_answers(self, name, qtype, answers)
 
     stats_count(self.stats, key, answers.errstr and
                                  "query_err:" .. answers.errstr or "query_succ")
@@ -356,7 +330,7 @@ local function resolve_name_type_callback(self, name, qtype, opts, tries)
     end
 
     if opts.cache_only then
-        return { errcode = 100, errstr = client_errors[100] }, nil, -1
+        return { errcode = 100, errstr = errstrs[100] }, nil, -1
     end
 
     return resolve_query(self, name, qtype, tries)
@@ -459,7 +433,7 @@ local function resolve_names_and_types(self, name, opts, tries)
             end
 
             if not answers.errcode then
-                insert_last_type(self.cache, qtype) -- cache the TYPE_LAST
+                insert_last_type(self.cache, qname, qtype) -- cache TYPE_LAST
                 return answers, nil, tries
             end
         end

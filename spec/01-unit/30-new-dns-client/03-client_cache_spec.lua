@@ -212,13 +212,14 @@ describe("[DNS client cache]", function()
         }}
       }
       local answers = cli:resolve("myhost5")
+      answers.ttl = nil
       assert.same(mock_records["mytarget.domain.com:"..resolver.TYPE_A], answers) -- not the test, intermediate validation
 
       -- the type un-specificc query was the CNAME, so that should be in the
       -- shorname cache
-      --
-      assert.same(mock_records["myhost5.domain.com:"..resolver.TYPE_CNAME],
-                  cli.cache:get("fast:myhost5:all"))
+      answers = cli.cache:get("fast:myhost5:all")
+      answers.ttl = nil
+      assert.same(mock_records["myhost5.domain.com:"..resolver.TYPE_CNAME], answers)
     end)
 
     it("ttl in cache is honored for short name entries", function()
@@ -237,7 +238,8 @@ describe("[DNS client cache]", function()
 
       -- resolve and check whether we got the mocked record
       local answers = cli:resolve("myhost6")
-      assert.equal(answers, mock_records["myhost6.domain.com:"..resolver.TYPE_A])
+      answers.ttl = nil
+      assert.same(answers, mock_records["myhost6.domain.com:"..resolver.TYPE_A])
 
       -- replace our mocked list with the copy made (new table, so no equality)
       mock_records = mock_copy
@@ -253,6 +255,7 @@ describe("[DNS client cache]", function()
       local answers2 = cli:resolve("myhost6")
       assert.is_true(answers2.expired)  -- stale; marked as expired
       answers2.expired = nil
+      answers2.ttl = nil
       assert.same(answers2, answers)
       answers2.expired = true
 
@@ -262,6 +265,7 @@ describe("[DNS client cache]", function()
       -- resolve and check whether we got the new record from the mock copy
       local answers3 = cli:resolve("myhost6")
       assert.not_equal(answers, answers3)  -- must be a different record now
+      answers3.ttl = nil
       assert.same(answers3, mock_records["myhost6.domain.com:"..resolver.TYPE_A])
 
       -- the 'answers3' resolve call above will also trigger a new background query
@@ -347,10 +351,13 @@ describe("[DNS client cache]", function()
       }
 
       local answers, err = cli:resolve("myhost9", { qtype = resolver.TYPE_A })
-      -- check that the cache is properly populated
-      assert.equal(rec1, answers)
       assert.is_nil(err)
-      assert.equal(rec1, cli.cache:get("myhost9.domain.com:" .. resolver.TYPE_A))
+      -- check that the cache is properly populated
+      answers.ttl = nil
+      assert.same(rec1, answers)
+      answers = cli.cache:get("myhost9.domain.com:" .. resolver.TYPE_A)
+      answers.ttl = nil
+      assert.same(rec1, answers)
 
       sleep(0.15) -- make sure we surpass the ttl of 0.1 of the record, so it is now stale.
       -- new mock records, such that we return server failures installed of records
@@ -373,6 +380,7 @@ describe("[DNS client cache]", function()
       answers = cli.cache:get("myhost9.domain.com:" .. resolver.TYPE_A)
       assert.is_true(answers.expired)
       answers.expired = nil
+      answers.ttl = nil
       assert.same(rec1, answers)
     end)
 
@@ -389,10 +397,13 @@ describe("[DNS client cache]", function()
       }
 
       local answers, err = cli:resolve("myhost9", { qtype = resolver.TYPE_A })
-      -- check that the cache is properly populated
-      assert.equal(rec1, answers)
       assert.is_nil(err)
-      assert.equal(rec1, cli.cache:get("myhost9.domain.com:" .. resolver.TYPE_A))
+      -- check that the cache is properly populated
+      answers.ttl = nil
+      assert.same(rec1, answers)
+      answers = cli.cache:get("myhost9.domain.com:" .. resolver.TYPE_A)
+      answers.ttl = nil
+      assert.same(rec1, answers)
 
       sleep(0.15) -- make sure we surpass the ttl of 0.1 of the record, so it is now stale.
       -- clear mock records, such that we return name errors instead of records
@@ -428,8 +439,9 @@ describe("[DNS client cache]", function()
 
       local answers, err = cli:resolve("myhost9", { qtype = resolver.TYPE_A })
       -- check that the cache is properly populated
-      assert.equal(rec1, answers)
-      assert.equal(rec1, cli.cache:get("myhost9.domain.com:" .. resolver.TYPE_A))
+      answers.ttl = nil
+      assert.same(rec1, answers)
+      assert.same(rec1, cli.cache:get("myhost9.domain.com:" .. resolver.TYPE_A))
 
       sleep(0.15) -- stale
       -- clear mock records, such that we return name errors instead of records
@@ -448,6 +460,7 @@ describe("[DNS client cache]", function()
       answers = cli.cache:get("myhost9.domain.com:" .. resolver.TYPE_A)
       assert.is_true(answers.expired)  -- we get the stale record, now marked as expired
       answers.expired = nil
+      answers.ttl = nil
       assert.same(rec1, answers)
     end)
 
@@ -487,7 +500,7 @@ describe("[DNS client cache]", function()
       assert(cli:resolve("myhost9"), { return_random = true })
 
       local cached = cli.cache:get("myhost9.domain.com:" .. resolver.TYPE_CNAME)
-      assert.are.equal(CNAME1, cached[1])
+      assert.same(nil, cached)
     end)
 
   end)
@@ -573,9 +586,30 @@ describe("[DNS client cache]", function()
           },
         }
       }
-      local answers = cli:resolve("demo.service.consul", { return_random = true })
-      local success = cli:get_last_type("192.168.5.232.node.api_test.consul")
-      assert.equal(resolver.TYPE_A, success)
+      local answers, err, tries = cli:resolve("demo.service.consul", { return_random = true })
+      assert.same(err, "no available records")
+      assert.same({
+        {
+          "192.168.5.232.node.api_test.consul",
+          33,
+          "DNS server replied error: name error"
+        },
+        {
+          "192.168.5.232.node.api_test.consul",
+          1,
+          "DNS server replied error: name error"
+        },
+        {
+          "192.168.5.232.node.api_test.consul",
+          28,
+          "DNS server replied error: name error"
+        },
+        {
+          "192.168.5.232.node.api_test.consul",
+          5,
+          "DNS server replied error: name error"
+        }
+      }, tries)
     end)
 
     it("are not overwritten by add. section info", function()

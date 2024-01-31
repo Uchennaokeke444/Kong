@@ -524,7 +524,12 @@ describe("[DNS client]", function()
     end
 
     local cli = assert(client_new())
+
+
+    orig_log = ngx.log
+    ngx.log = function (...) end -- mute ALERT log
     local answers, err = cli:resolve("srv.timeout.com")
+    ngx.log = orig_log
     assert.is_nil(answers)
     assert.match("callback threw an error:.*CALLBACK", err)
   end)
@@ -690,52 +695,47 @@ describe("[DNS client]", function()
   end)
 
   it("fetching A answers redirected through 2 CNAME answerss (un-typed)", function()
-    --[[
-    This test might fail. Recurse flag is on by default. This means that the first return
-    includes the cname answerss, but the second one (within the ttl) will only include the
-    A-answers.
-    Note that this is not up to the client code, but it's done out of our control by the
-    dns server.
-    If we turn on the 'no_recurse = true' option, then the dns server might refuse the request
-    (error nr 5).
-    So effectively the first time the test runs, it's ok. Immediately running it again will
-    make it fail. Wait for the ttl to expire, then it will work again.
-
-    This does not affect client side code, as the result is always the final A answers.
-    --]]
     writefile(resolv_path, "")  -- search {} empty
 
     local host = "smtp."..TEST_DOMAIN
     local typ = resolver.TYPE_A
 
-    local cli = assert(client_new({ nameservers = TEST_NSS}))
+    local cli = assert(client_new({ nameservers = TEST_NSS }))
     local answers = assert(cli:resolve(host))
 
     -- check first CNAME
     local key1 = host .. ":" .. resolver.TYPE_CNAME
     local entry1 = cli.cache:get(key1)
-    assert.are.equal(host, entry1[1].name)       -- the 1st answers is the original 'smtp.'..TEST_DOMAIN
-    assert.are.equal(resolver.TYPE_CNAME, entry1[1].type) -- and that is a CNAME
+    assert.same(nil, entry1)
 
-    -- check second CNAME
-    local key2 = entry1[1].cname .. ":" .. resolver.TYPE_CNAME
-    local entry2 = cli.cache:get(key2)
-    assert.are.equal(entry1[1].cname, entry2[1].name) -- the 2nd is the middle 'thuis.'..TEST_DOMAIN
-    assert.are.equal(resolver.TYPE_CNAME, entry2[1].type) -- and that is also a CNAME
-
-    -- check second target to match final answers
-    assert.are.equal(entry2[1].cname, answers[1].name)
-    assert.are.not_equal(host, answers[1].name)  -- we got final name 'wdnaste.duckdns.org'
-    assert.are.equal(typ, answers[1].type)       -- we got a final A type answers
-    assert.are.equal(#answers, 1)
+    assert.same({
+      ["kong-gateway-testing.link"] = {
+	miss = 1,
+	runs = 1,
+	succ = 1
+      },
+      ["kong-gateway-testing.link:1"] = {
+	query = 1,
+	query_succ = 1
+      },
+      ["kong-gateway-testing.link:33"] = {
+	query = 1,
+	["query_err:empty record received"] = 1
+      },
+      ["smtp.kong-gateway-testing.link"] = {
+	cname = 1,
+	miss = 1,
+	runs = 1
+      },
+      ["smtp.kong-gateway-testing.link:33"] = {
+	query = 1,
+	query_succ = 1
+      }
+    }, cli.stats)
 
     -- check last successful lookup references
-    local lastsuccess3 = cli:get_last_type(answers[1].name)
-    local lastsuccess2 = cli:get_last_type(entry2[1].name)
-    local lastsuccess1 = cli:get_last_type(entry1[1].name)
-    assert.are.equal(resolver.TYPE_A, lastsuccess3)
-    assert.are.equal(resolver.TYPE_CNAME, lastsuccess2)
-    assert.are.equal(resolver.TYPE_CNAME, lastsuccess1)
+    local lastsuccess = cli:get_last_type(answers[1].name)
+    assert.are.equal(resolver.TYPE_A, lastsuccess)
   end)
 
   it("fetching multiple SRV answerss (un-typed)", function()
@@ -766,15 +766,23 @@ describe("[DNS client]", function()
     -- first check CNAME
     local key = host .. ":" .. resolver.TYPE_CNAME
     local entry = cli.cache:get(key)
-    assert.are.equal(host, entry[1].name)
-    assert.are.equal(resolver.TYPE_CNAME, entry[1].type)
+    assert.same(nil, entry)
+
+    assert.same({
+      ["cname2srv.kong-gateway-testing.link"] = {
+        miss = 1,
+        runs = 1,
+        succ = 1
+      },
+      ["cname2srv.kong-gateway-testing.link:33"] = {
+        query = 1,
+        query_succ = 1
+      }
+    }, cli.stats)
 
     -- check final target
-    assert.are.equal(entry[1].cname, answers[1].name)
     assert.are.equal(typ, answers[1].type)
-    assert.are.equal(entry[1].cname, answers[2].name)
     assert.are.equal(typ, answers[2].type)
-    assert.are.equal(entry[1].cname, answers[3].name)
     assert.are.equal(typ, answers[3].type)
     assert.are.equal(#answers, 3)
   end)
