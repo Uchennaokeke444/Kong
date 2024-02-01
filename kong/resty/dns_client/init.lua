@@ -301,19 +301,17 @@ local function resolve_query(self, name, qtype, tries)
 end
 
 
-local function stale_update_callback(self, name, qtype)
-    return resolve_query(self, name, qtype, {})
-end
-
-
 local function start_stale_update_task(self, key, name, qtype)
     stats_count(self.stats, key, "stale")
 
     timer_at(0, function (premature)
-        if premature then
-            return
+        if premature then return end
+
+        local answers = resolve_query(self, name, qtype, {})
+        if answers and (not answers.errcode or answers.errcode == 3) then
+            self.cache:set(key, { ttl = answers.ttl }, answers)
+            insert_last_type(self.cache, name, qtype)
         end
-        self.cache:get(key, nil, stale_update_callback, self, name, qtype)
     end)
 end
 
