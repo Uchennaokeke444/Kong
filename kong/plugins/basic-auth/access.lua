@@ -1,6 +1,6 @@
 local crypto = require "kong.plugins.basic-auth.crypto"
 local constants = require "kong.constants"
-
+local plugin_responses = require "kong.tools.plugin_responses"
 
 local crypto_hash = crypto.hash
 local decode_base64 = ngx.decode_base64
@@ -8,6 +8,7 @@ local re_gmatch = ngx.re.gmatch
 local re_match = ngx.re.match
 local error = error
 local kong = kong
+local unauthorized = plugin_responses.unauthorized
 
 
 local HEADERS_CONSUMER_ID           = constants.HEADERS.CONSUMER_ID
@@ -148,11 +149,6 @@ local function set_consumer(consumer, credential)
   else
     set_header(HEADERS_ANONYMOUS, true)
   end
-end
-
-
-local function unauthorized(message, www_auth_content)
-  return { status = 401, message = message, headers = { ["WWW-Authenticate"] = www_auth_content } }
 end
 
 

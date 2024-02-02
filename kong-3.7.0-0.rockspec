@@ -182,6 +182,7 @@ build = {
     ["kong.tools.http"] = "kong/tools/http.lua",
     ["kong.tools.cjson"] = "kong/tools/cjson.lua",
     ["kong.tools.redis.schema"] = "kong/tools/redis/schema.lua",
+    ["kong.tools.plugin_responses"] = "kong/tools/plugin_responses.lua",
 
     ["kong.runloop.handler"] = "kong/runloop/handler.lua",
     ["kong.runloop.events"] = "kong/runloop/events.lua",
