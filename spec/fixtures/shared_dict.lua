@@ -14,6 +14,7 @@ local dicts = {
   "kong_db_cache_miss 12m",
   "kong_db_cache_miss_2 12m",
   "kong_dns_cache 10m",
+  "kong_dns_cache_miss 10m",
   "kong_dns_cache_ipc 5m",
   "kong_mock_upstream_loggers 10m",
   "kong_secrets 5m",

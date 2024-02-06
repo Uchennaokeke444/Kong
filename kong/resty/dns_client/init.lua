@@ -48,6 +48,8 @@ local errstrs = {     -- client specific errors
     [101] = "empty record received",
 }
 
+local EMPTY_ANSWERS = { errcode = 3, errstr = "name error" }
+
 
 --- APIs
 local _M = {}
@@ -172,6 +174,9 @@ function _M.new(opts)
             timeout = lock_timeout,
             exptimeout = lock_timeout + 1,
         },
+        -- miss cache
+        shm_miss = "kong_dns_cache_miss",
+        neg_ttl = opts.empty_ttl or DEFAULT_EMPTY_TTL,
     })
     if not cache then
         return nil, "could not create mlcache: " .. err
@@ -261,7 +266,6 @@ local function process_answers(self, qname, qtype, answers)
         end
 
         table_insert(processed_answers, cname_answer)
-        assert(processed_answers[1])
     end
 
     processed_answers.ttl = self.valid_ttl or ttl
@@ -271,7 +275,7 @@ end
 
 
 local function resolve_query(self, name, qtype, tries)
-    --log(tries, "query")
+    -- log(tries, "query")
 
     local key = name .. ":" .. qtype
     stats_count(self.stats, key, "query")
@@ -297,7 +301,7 @@ local function resolve_query(self, name, qtype, tries)
     stats_count(self.stats, key, answers.errstr and
                                  "query_err:" .. answers.errstr or "query_succ")
 
-    --log(tries, answers.errstr or #answers)
+    -- log(tries, answers.errstr or #answers)
 
     return answers, nil, answers.ttl
 end
@@ -311,7 +315,8 @@ local function start_stale_update_task(self, key, name, qtype)
 
         local answers = resolve_query(self, name, qtype, {})
         if answers and (not answers.errcode or answers.errcode == 3) then
-            self.cache:set(key, { ttl = answers.ttl }, answers)
+            self.cache:set(key, { ttl = answers.ttl },
+                           answers.errcode == 3 and nil or answers)
             insert_last_type(self.cache, name, qtype)
         end
     end)
@@ -335,7 +340,13 @@ local function resolve_name_type_callback(self, name, qtype, opts, tries)
         return { errcode = 100, errstr = errstrs[100] }, nil, -1
     end
 
-    return resolve_query(self, name, qtype, tries)
+    local answers, err, ttl = resolve_query(self, name, qtype, tries)
+
+    if answers and answers.errcode == 3 then
+        return nil  -- empty record for shm_miss cache
+    end
+
+    return answers, err, ttl
 end
 
 
@@ -373,13 +384,18 @@ local function resolve_name_type(self, name, qtype, opts, tries)
         ngx.log(ngx.ALERT, err)
     end
 
+    if not answers and not err then
+        answers = EMPTY_ANSWERS
+    end
+
     if hit_level and hit_level < 3 then
         stats_count(self.stats, key, hitstrs[hit_level])
         -- log(tries, hitstrs[hit_level])
     end
 
     if err or answers.errcode then
-        log(tries, { name, qtype, err or "DNS server replied error: " .. answers.errstr})
+        err = err or "DNS server replied error: " .. answers.errstr
+        table_insert(tries, { name, qtype, err })
     end
 
     return answers, err
@@ -448,7 +464,7 @@ end
 
 local function resolve_all(self, name, opts, tries)
     local key = "fast:" .. name .. ":" .. (opts.qtype or "all")
-    --log(tries, key)
+    -- log(tries, key)
 
     stats_init(self.stats, name)
     stats_count(self.stats, name, "runs")

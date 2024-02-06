@@ -1,3 +1,5 @@
+-- This test case file originates from the old version of the DNS client and has                                                  -- been modified to adapt to the new version of the DNS client.
+
 local utils = require("kong.tools.utils")
 local _writefile = require("pl.utils").writefile
 local tmpname = require("pl.path").tmpname
