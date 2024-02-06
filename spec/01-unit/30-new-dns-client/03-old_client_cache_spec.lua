@@ -5,9 +5,7 @@ local _writefile = require("pl.utils").writefile
 local tmpname = require("pl.path").tmpname
 
 -- hosted in Route53 in the AWS sandbox
-local TEST_DOMAIN = "kong-gateway-testing.link"
 local TEST_NS = "198.51.100.0:53"
-local TEST_NS = "192.168.5.2:53"  -- Kong local official env
 
 local TEST_NSS = { TEST_NS }
 
@@ -440,7 +438,7 @@ describe("[DNS client cache]", function()
         ["myhost9.domain.com:"..resolver.TYPE_A] = rec1,
       }
 
-      local answers, err = cli:resolve("myhost9", { qtype = resolver.TYPE_A })
+      local answers = cli:resolve("myhost9", { qtype = resolver.TYPE_A })
       -- check that the cache is properly populated
       answers.ttl = nil
       assert.same(rec1, answers)
@@ -589,7 +587,7 @@ describe("[DNS client cache]", function()
           },
         }
       }
-      local answers, err, tries = cli:resolve("demo.service.consul", { return_random = true })
+      local _, err, tries = cli:resolve("demo.service.consul", { return_random = true })
       assert.same(err, "no available records")
       assert.same({
         {

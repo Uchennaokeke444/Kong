@@ -529,11 +529,10 @@ describe("[DNS client]", function()
 
     local cli = assert(client_new())
 
-
-    orig_log = ngx.log
-    ngx.log = function (...) end -- mute ALERT log
+    local orig_log = ngx.log
+    _G.ngx.log = function (...) end -- mute ALERT log
     local answers, err = cli:resolve("srv.timeout.com")
-    ngx.log = orig_log
+    _G.ngx.log = orig_log
     assert.is_nil(answers)
     assert.match("callback threw an error:.*CALLBACK", err)
   end)
@@ -702,7 +701,6 @@ describe("[DNS client]", function()
     writefile(resolv_path, "")  -- search {} empty
 
     local host = "smtp."..TEST_DOMAIN
-    local typ = resolver.TYPE_A
 
     local cli = assert(client_new({ nameservers = TEST_NSS }))
     local answers = assert(cli:resolve(host))
