@@ -26,6 +26,7 @@ describe("[DNS client cache]", function()
     opts.resolv_conf = resolv_path
     opts.hosts = hosts_path
     opts.nameservers = opts.nameservers or TEST_NSS
+    opts.cache_purge = true
     return client.new(opts)
   end
 

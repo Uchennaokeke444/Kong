@@ -23,6 +23,7 @@ describe("[DNS client]", function()
     opts = opts or {}
     opts.resolv_conf = resolv_path
     opts.hosts = hosts_path
+    opts.cache_purge = true
     return client.new(opts)
   end
 

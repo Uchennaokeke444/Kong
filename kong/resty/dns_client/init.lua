@@ -177,7 +177,9 @@ function _M.new(opts)
         return nil, "could not create mlcache: " .. err
     end
 
-    cache:purge(true)
+    if opts.cache_purge then
+        cache:purge(true)
+    end
 
     -- TODO: add an async task to call cache:update() to update L1/LRU-cache
     -- for the inserted value from other workers
