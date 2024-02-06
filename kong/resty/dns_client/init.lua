@@ -14,8 +14,8 @@ local table_insert = table.insert
 local json = require("cjson").encode
 
 local logerr = function (...) ngx.log(ngx.ERR, "+ debug:", ...) end
-]]
 local log = table_insert
+]]
 
 -- Constants and default values
 local DEFAULT_ERROR_TTL = 1     -- unit: second
